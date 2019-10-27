@@ -1,7 +1,7 @@
 extern crate clap;
 
 use clap::{App, Arg, SubCommand};
-use rucredstash::credstash::CredStashClient;
+use rucredstash::CredStashClient;
 use std::ffi::OsString;
 
 #[derive(Debug, PartialEq)]
