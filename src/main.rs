@@ -6,19 +6,21 @@ use std::ffi::OsString;
 #[derive(Debug, PartialEq)]
 struct RuCredStashApp {
     name: String,
-    region_option : Option<String>
+    region_option: Option<String>,
+    aws_profile: Option<String>,
+    table_name: Option<String>,
+    aws_arn: Option<String>,
 }
 
 impl RuCredStashApp {
-
     fn new() -> Self {
         Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
     }
 
     fn new_from<I, T>(args: I) -> Result<Self, clap::Error>
-        where
-        I : Iterator<Item = T>,
-        T: Into<OsString> + Clone
+    where
+        I: Iterator<Item = T>,
+        T: Into<OsString> + Clone,
     {
         let app: App = App::new("rucredstash")
             .version("0.1")
@@ -51,39 +53,35 @@ impl RuCredStashApp {
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
-            .arg(Arg::with_name("del_secret")
-            .help("The secret to delete"));
+            .arg(Arg::with_name("del_secret").help("The secret to delete"));
 
         let get_command = SubCommand::with_name("get")
             .about("Get a credential from the store")
-            .arg(Arg::with_name("secret")
-            .help("The secret to retrieve"));
+            .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
         let get_all_command = SubCommand::with_name("getall")
             .about("Get all credentials from the store")
-            .arg(Arg::with_name("secret")
-            .help("The secret to retrieve"));
+            .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
-        let keys_command = SubCommand::with_name("keys")
-            .about("List all keys in the store");
+        let keys_command = SubCommand::with_name("keys").about("List all keys in the store");
 
-        let list_command = SubCommand::with_name("list")
-            .about("List credentials and their versions");
+        let list_command =
+            SubCommand::with_name("list").about("List credentials and their versions");
 
         let put_command = SubCommand::with_name("put")
             .about("Put a credential from the store")
-            .arg(Arg::with_name("secret")
-            .help("The secret to retrieve"));
+            .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
         let put_all_command = SubCommand::with_name("putall")
             .about("Put credentials from json into the store")
-            .arg(Arg::with_name("secret")
-            .help("The secret to retrieve"));
+            .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
-        let setup_command = SubCommand::with_name("setup")
-            .about("setup the credential store");
+        let setup_command = SubCommand::with_name("setup").about("setup the credential store");
 
-        let app = app.arg(region_arg).arg(table_arg).arg(profile_arg)
+        let app = app
+            .arg(region_arg)
+            .arg(table_arg)
+            .arg(profile_arg)
             .arg(arn_arg)
             .subcommand(del_command)
             .subcommand(get_command)
@@ -94,19 +92,22 @@ impl RuCredStashApp {
             .subcommand(put_all_command)
             .subcommand(setup_command);
         // extract the matches
-        let matches = app.get_matches_from_safe(args)?;
+        let matches: clap::ArgMatches = app.get_matches_from_safe(args)?;
 
-        let region = matches.value_of("region").expect("lol");
+        let region: Option<&str> = matches.value_of("region");
+
         Ok(RuCredStashApp {
             name: "Hello".to_string(),
-            region_option: None
+            region_option: region.map(|r| r.to_string()),
+            aws_profile: matches.value_of("profile").map(|r| r.to_string()),
+            aws_arn: matches.value_of("arn").map(|r| r.to_string()),
+            table_name: matches.value_of("table").map(|r| r.to_string()),
         })
         // panic!("undefined");
     }
-
 }
 
 fn main() {
     let test = RuCredStashApp::new();
-    println!("Hello, world {}", test.name);
+    println!("Hello, world {:?}", test);
 }
