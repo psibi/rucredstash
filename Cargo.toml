@@ -8,6 +8,10 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33.0"
+rusoto_core = "0.41.0"
+rusoto_dynamodb = "0.41.0"
+rusoto_kms = "0.41.0"
+
 
 [[bin]]
 name = "rucredstash"

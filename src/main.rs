@@ -1,6 +1,7 @@
 extern crate clap;
 
 use clap::{App, Arg, SubCommand};
+use rucredstash::credstash::CredStashClient;
 use std::ffi::OsString;
 
 #[derive(Debug, PartialEq)]
@@ -10,6 +11,18 @@ struct RuCredStashApp {
     aws_profile: Option<String>,
     table_name: Option<String>,
     aws_arn: Option<String>,
+    action: Action,
+}
+
+#[derive(Debug, PartialEq)]
+enum Action {
+    Delete(String),
+    Get(String, Option<String>),
+    GetAll,
+    Keys,
+    List,
+    Put(String, String, Option<String>),
+    Setup,
 }
 
 impl RuCredStashApp {
@@ -31,13 +44,24 @@ impl RuCredStashApp {
             .long("region")
             .short("r")
             .value_name("REGION")
-            .help("the AWS region in which to operate. If a region is not specified, credstash will use the value of the AWS_DEFAULT_REGION env variable, or if that is not set, the value in `~/.aws/config`. As a last resort, it will use us-east-1");
+            .help(
+                "the AWS region in which to operate. If a region is \
+                 not specified, credstash will use the value of the \
+                 AWS_DEFAULT_REGION env variable, or if that is not \
+                 set, the value in `~/.aws/config`. As a last resort, \
+                 it will use us-east-1",
+            );
 
         let table_arg = Arg::with_name("table")
             .long("table")
             .short("t")
             .value_name("TABLE")
-            .help("DynamoDB table to use for credential storage. If not specified, credstash will use the value of the CREDSTASH_DEFAULT_TABLE env variable, or if that is not set, the value `credential-store` will be used");
+            .help(
+                "DynamoDB table to use for credential storage. If \
+                 not specified, credstash will use the value of the \
+                 CREDSTASH_DEFAULT_TABLE env variable, or if that is \
+                 not set, the value `credential-store` will be used",
+            );
 
         let profile_arg = Arg::with_name("profile")
             .long("profile")
@@ -53,11 +77,20 @@ impl RuCredStashApp {
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
-            .arg(Arg::with_name("del_secret").help("The secret to delete"));
+            .arg(Arg::with_name("credential").help("Delete a credential from the store"));
 
         let get_command = SubCommand::with_name("get")
             .about("Get a credential from the store")
-            .arg(Arg::with_name("secret").help("The secret to retrieve"));
+            .arg(
+                Arg::with_name("credential")
+                    .help("the name of the credential to get")
+                    .required(true)
+            ).arg(
+                Arg::with_name("context")
+                    .help("encryption context key/value pairs associated with the credential in the form of key=value")
+
+            )
+            ;
 
         let get_all_command = SubCommand::with_name("getall")
             .about("Get all credentials from the store")
@@ -70,7 +103,9 @@ impl RuCredStashApp {
 
         let put_command = SubCommand::with_name("put")
             .about("Put a credential from the store")
-            .arg(Arg::with_name("secret").help("The secret to retrieve"));
+            .arg(Arg::with_name("credential").help("the name of the credential to store"))
+            .arg(Arg::with_name("value").help("the value of the credential to store"))
+            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"));
 
         let put_all_command = SubCommand::with_name("putall")
             .about("Put credentials from json into the store")
@@ -95,6 +130,28 @@ impl RuCredStashApp {
         let matches: clap::ArgMatches = app.get_matches_from_safe(args)?;
 
         let region: Option<&str> = matches.value_of("region");
+        let action_value: Action = match matches.subcommand() {
+            ("get", Some(get_matches)) => {
+                let credential: String = get_matches.value_of("credential").unwrap().to_string();
+                let context = get_matches.value_of("context").map(|e| e.to_string());
+                Action::Get(credential, context)
+            }
+            ("getall", _) => Action::GetAll,
+            ("keys", _) => Action::Keys,
+            ("list", _) => Action::List,
+            ("setup", _) => Action::Setup,
+            ("put", Some(put_matches)) => {
+                let credential: String = put_matches.value_of("credential").unwrap().to_string();
+                let value: String = put_matches.value_of("value").unwrap().to_string();
+                let context = put_matches.value_of("context").map(|e| e.to_string());
+                Action::Put(credential, value, context)
+            }
+            ("delete", Some(del_matches)) => {
+                let credential: String = del_matches.value_of("credential").unwrap().to_string();
+                Action::Delete(credential)
+            }
+            _ => unreachable!(),
+        };
 
         Ok(RuCredStashApp {
             name: "Hello".to_string(),
@@ -102,6 +159,7 @@ impl RuCredStashApp {
             aws_profile: matches.value_of("profile").map(|r| r.to_string()),
             aws_arn: matches.value_of("arn").map(|r| r.to_string()),
             table_name: matches.value_of("table").map(|r| r.to_string()),
+            action: action_value,
         })
         // panic!("undefined");
     }
@@ -110,4 +168,5 @@ impl RuCredStashApp {
 fn main() {
     let test = RuCredStashApp::new();
     println!("Hello, world {:?}", test);
+    let a = CredStashClient::new();
 }
