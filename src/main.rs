@@ -169,4 +169,10 @@ fn main() {
     let test = RuCredStashApp::new();
     println!("Hello, world {:?}", test);
     let a = CredStashClient::new();
+    println!("debug");
+
+    a.get_secret("credential-store".to_string(), "hello".to_string());
+
+    let encrypted_data = "AQIBAHh2LgYkISZhCX5HzfHk6rC/VgyqMMsZiABVXow4+2d6igEDotHJ1s4ABPG5NXkZSQtHAAAAojCBnwYJKoZIhvcNAQcGoIGRMIGOAgEAMIGIBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDD563GAbyfxh4Oq6PwIBEIBbmyvxBNaGXmXvYmwEax4mFkgQnfxsuI0pxmf0qVyB5mTvUkxwc1u1LOSRzCzUdjmZ4O9FxPLtqNxrb3mMroUHhLjNGjdGPySukO8ICb1egkwDRirys9/H39o4yw==".to_string();
+    // todo: use the master key to decrypt it
 }

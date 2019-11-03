@@ -10,6 +10,7 @@ edition = "2018"
 clap = "2.33.0"
 rusoto_core = "0.41.0"
 rusoto_dynamodb = "0.41.0"
+rusoto_ec2 = "0.41.0"
 rusoto_kms = "0.41.0"
 
 

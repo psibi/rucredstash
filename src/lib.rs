@@ -4,9 +4,11 @@ extern crate rusoto_dynamodb;
 use rusoto_core::region::Region;
 use rusoto_core::RusotoError;
 use rusoto_dynamodb::{
-    DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput, QueryInput,
+    AttributeValue, DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput,
+    QueryInput,
 };
 use rusoto_kms::KmsClient;
+use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
 
@@ -35,12 +37,31 @@ impl CredStashClient {
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
         query.consistent_read = Some(true);
-        let mut cond: String = "name = ".to_string();
-        cond.push_str(key.as_str());
+        let cond: String = "#n = :nameValue".to_string();
         query.key_condition_expression = Some(cond);
+
+        let mut attr_names = HashMap::new();
+        attr_names.insert("#n".to_string(), "name".to_string());
+        query.expression_attribute_names = Some(attr_names);
+
+        let mut strAttr: AttributeValue = AttributeValue::default();
+        strAttr.s = Some("hello".to_string());
+
+        let mut attr_values = HashMap::new();
+        attr_values.insert(":nameValue".to_string(), strAttr);
+        query.expression_attribute_values = Some(attr_values);
+        query.table_name = table;
         let query_output = self.dynamo_client.query(query).sync();
-        println!("{:?}", query_output);
+        println!("{:?}", query_output.unwrap().items);
         // now find the table key
+        ()
+    }
+
+    pub fn fetch_customer_managed_keys(self, alias: String) -> () {
+        ()
+    }
+
+    pub fn decrypt_secret(self, value: String) -> () {
         ()
     }
 }
