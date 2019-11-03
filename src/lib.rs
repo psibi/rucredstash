@@ -11,10 +11,20 @@ use rusoto_kms::KmsClient;
 use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
+mod crypto;
+use bytes::Bytes;
 
 pub struct CredStashClient {
     dynamo_client: DynamoDbClient,
     kms_client: KmsClient,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct DynamoResult {
+    dynamo_key: String,      // Key name
+    dynamo_contents: String, // Key value which we are interested to decrypt
+    dynamo_hmac: Bytes,      // HMAC Digest
+    dynamo_digest: String,   // Digest type
 }
 
 impl CredStashClient {
@@ -32,7 +42,7 @@ impl CredStashClient {
         }
     }
 
-    pub fn get_secret(self, table: String, key: String) -> () {
+    pub fn get_secret(self, table: String, key: String) -> DynamoResult {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
@@ -52,9 +62,28 @@ impl CredStashClient {
         query.expression_attribute_values = Some(attr_values);
         query.table_name = table;
         let query_output = self.dynamo_client.query(query).sync();
-        println!("{:?}", query_output.unwrap().items);
-        // now find the table key
-        ()
+        let dynamo_result: Vec<HashMap<String, AttributeValue>> =
+            query_output.unwrap().items.unwrap();
+        let dr: HashMap<String, AttributeValue> = dynamo_result.into_iter().nth(0).unwrap();
+        println!("1");
+        let dynamo_key: &AttributeValue = dr.get("key").unwrap();
+        println!("2");
+        let dynamo_contents: &AttributeValue = dr.get("contents").unwrap();
+        println!("3");
+        let dynamo_hmac: &AttributeValue = dr.get("hmac").unwrap();
+        println!("4");
+        let dynamo_version: &AttributeValue = dr.get("version").unwrap();
+        println!("5");
+        let dynamo_digest: &AttributeValue = dr.get("digest").unwrap();
+        println!("6");
+        let dkey: String = dynamo_key.s.as_ref().unwrap().to_string();
+        println!("7");
+        DynamoResult {
+            dynamo_key: dkey,
+            dynamo_contents: dynamo_contents.s.as_ref().unwrap().to_string(),
+            dynamo_hmac: dynamo_hmac.b.as_ref().unwrap().to_owned(),
+            dynamo_digest: dynamo_digest.s.as_ref().unwrap().to_string(),
+        }
     }
 
     pub fn fetch_customer_managed_keys(self, alias: String) -> () {
