@@ -1,3 +1,5 @@
+extern crate base64;
+extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 
@@ -12,6 +14,7 @@ use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
 mod crypto;
+use base64::decode;
 use bytes::Bytes;
 
 pub struct CredStashClient {
@@ -21,10 +24,12 @@ pub struct CredStashClient {
 
 #[derive(Debug, PartialEq)]
 pub struct DynamoResult {
-    dynamo_key: String,      // Key name
-    dynamo_contents: String, // Key value which we are interested to decrypt
-    dynamo_hmac: Bytes,      // HMAC Digest
-    dynamo_digest: String,   // Digest type
+    dynamo_aes_key: Vec<u8>,  // Key name
+    dynamo_hmac_key: Vec<u8>, // Key name
+    dynamo_contents: Vec<u8>, // Key value which we are interested to decrypt
+    dynamo_hmac: Vec<u8>,     // HMAC Digest
+    dynamo_digest: String,    // Digest type
+    dynamo_version: String,   // Version
 }
 
 impl CredStashClient {
@@ -65,24 +70,20 @@ impl CredStashClient {
         let dynamo_result: Vec<HashMap<String, AttributeValue>> =
             query_output.unwrap().items.unwrap();
         let dr: HashMap<String, AttributeValue> = dynamo_result.into_iter().nth(0).unwrap();
-        println!("1");
         let dynamo_key: &AttributeValue = dr.get("key").unwrap();
-        println!("2");
         let dynamo_contents: &AttributeValue = dr.get("contents").unwrap();
-        println!("3");
         let dynamo_hmac: &AttributeValue = dr.get("hmac").unwrap();
-        println!("4");
         let dynamo_version: &AttributeValue = dr.get("version").unwrap();
-        println!("5");
         let dynamo_digest: &AttributeValue = dr.get("digest").unwrap();
-        println!("6");
-        let dkey: String = dynamo_key.s.as_ref().unwrap().to_string();
-        println!("7");
+        // let dkey: String = dynamo_key.s.as_ref().unwrap().to_string();
+        let dkey1: &String = dynamo_key.s.as_ref().unwrap();
         DynamoResult {
-            dynamo_key: dkey,
-            dynamo_contents: dynamo_contents.s.as_ref().unwrap().to_string(),
-            dynamo_hmac: dynamo_hmac.b.as_ref().unwrap().to_owned(),
+            dynamo_aes_key: decode(dkey1).unwrap()[0..32].to_owned(),
+            dynamo_hmac_key: decode(dkey1).unwrap()[32..].to_owned(),
+            dynamo_contents: decode(dynamo_contents.s.as_ref().unwrap()).unwrap(),
+            dynamo_hmac: hex::decode(dynamo_hmac.b.as_ref().unwrap()).unwrap(),
             dynamo_digest: dynamo_digest.s.as_ref().unwrap().to_string(),
+            dynamo_version: dynamo_version.s.as_ref().unwrap().to_owned(),
         }
     }
 
@@ -90,8 +91,9 @@ impl CredStashClient {
         ()
     }
 
-    pub fn decrypt_secret(self, value: String) -> () {
-        ()
+    pub fn decrypt_secret(row: DynamoResult) -> String {
+        let crypto_context = crypto::Crypto::new();
+        crypto_context.aes_decrypt_ctr3(row.dynamo_contents, row.dynamo_aes_key)
     }
 }
 

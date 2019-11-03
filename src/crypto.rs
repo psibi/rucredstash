@@ -1,15 +1,15 @@
-use crate::DynamoResult;
+// use crate::DynamoResult;
 use aes_ctr::stream_cipher::generic_array::GenericArray;
 use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
 use aes_ctr::Aes256Ctr;
 use ring::hmac;
 
-struct Crypto {
+pub struct Crypto {
     default_nonce: [u8; 16],
 }
 
 impl Crypto {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Crypto {
             default_nonce: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         }
@@ -27,9 +27,9 @@ impl Crypto {
         }
     }
 
-    fn decrypt_credstash(self, row: DynamoResult) -> () {
-        ()
-    }
+    // fn decrypt_credstash(self, row: DynamoResult) -> () {
+    //     ()
+    // }
 
     fn aes_encrypt_ctr(self, plaintext: String, key: String) -> Vec<u8> {
         // credstash uses AES symmetric encryption in CTR mode.
@@ -71,6 +71,21 @@ impl Crypto {
             cipher.apply_keystream(c2);
             c2
         };
+        let g: String = std::str::from_utf8_mut(f).unwrap().to_string();
+        g
+    }
+
+    pub fn aes_decrypt_ctr3(self, ciphertext: Vec<u8>, key: Vec<u8>) -> String {
+        let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key[0..]);
+        let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
+        let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
+        let mut c1 = ciphertext.clone();
+        let f: &mut [u8] = unsafe {
+            let c2: &mut [u8] = c1.as_mut();
+            cipher.apply_keystream(c2);
+            c2
+        };
+        // let g = f.to_owned();
         let g: String = std::str::from_utf8_mut(f).unwrap().to_string();
         g
     }
