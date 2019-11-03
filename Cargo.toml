@@ -12,7 +12,9 @@ rusoto_core = "0.41.0"
 rusoto_dynamodb = "0.41.0"
 rusoto_ec2 = "0.41.0"
 rusoto_kms = "0.41.0"
-
+ring = "0.16.9"
+aes-ctr = "0.3.0"
+bytes = "0.4.12"
 
 [[bin]]
 name = "rucredstash"
