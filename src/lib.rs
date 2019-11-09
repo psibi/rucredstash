@@ -98,13 +98,13 @@ impl CredStashClient {
         let mut ptext: Bytes = query_output.plaintext.unwrap();
         println!("ptext {:?}", ptext);
         println!("ptext len {:?}", ptext.len());
-        let hmac_key = ptext.split_to(32);
+        let aes_key = ptext.split_to(32);
         println!("ptext {:?}", ptext);
-        println!("ptext len {:?} {:?}", ptext.len(), hmac_key.len());
+        println!("ptext len {:?} {:?}", ptext.len(), aes_key.len());
         // Bytes to Vector conversion
         // let jack: Vec<u8> = ptext.into_iter().collect();
         // ptext is aes_key now
-        (hmac_key, ptext)
+        (ptext, aes_key)
         // query_output.plaintext.into()
     }
 
