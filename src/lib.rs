@@ -9,7 +9,8 @@ use rusoto_dynamodb::{
     AttributeValue, DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput,
     QueryInput,
 };
-use rusoto_kms::KmsClient;
+use rusoto_kms::DecryptRequest;
+use rusoto_kms::{Kms, KmsClient};
 use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
@@ -47,7 +48,7 @@ impl CredStashClient {
         }
     }
 
-    pub fn get_secret(self, table: String, key: String) -> DynamoResult {
+    pub fn get_secret(&self, table: String, key: String) -> DynamoResult {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
@@ -77,6 +78,9 @@ impl CredStashClient {
         let dynamo_digest: &AttributeValue = dr.get("digest").unwrap();
         // let dkey: String = dynamo_key.s.as_ref().unwrap().to_string();
         let dkey1: &String = dynamo_key.s.as_ref().unwrap();
+        let dkey1decode: Vec<u8> = decode(dkey1).unwrap();
+        // pass dkey1decode to decrypt_via_kms
+        self.decrypt_via_kms(dkey1decode);
         DynamoResult {
             dynamo_aes_key: decode(dkey1).unwrap()[0..32].to_owned(),
             dynamo_hmac_key: decode(dkey1).unwrap()[32..].to_owned(),
@@ -85,6 +89,18 @@ impl CredStashClient {
             dynamo_digest: dynamo_digest.s.as_ref().unwrap().to_string(),
             dynamo_version: dynamo_version.s.as_ref().unwrap().to_owned(),
         }
+    }
+
+    fn decrypt_via_kms(&self, cipher: Vec<u8>) -> () {
+        let mut query: DecryptRequest = Default::default();
+        query.ciphertext_blob = Bytes::from(cipher);
+        let query_output = self.kms_client.decrypt(query).sync().unwrap();
+        let ptext: Bytes = query_output.plaintext.unwrap();
+        println!("ptext {:?}", ptext);
+        println!("ptext len {:?}", ptext.len());
+        let jack: Vec<u8> = ptext.into_iter().collect();
+        ()
+        // query_output.plaintext.into()
     }
 
     pub fn fetch_customer_managed_keys(self, alias: String) -> () {

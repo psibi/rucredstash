@@ -174,19 +174,19 @@ fn main() {
     let a = CredStashClient::new();
     println!("debug");
 
-    // let b = a.get_secret("credential-store".to_string(), "hello".to_string());
-    // let c = CredStashClient::decrypt_secret(b);
-    // println!("{:?}", c);
+    let b = a.get_secret("credential-store".to_string(), "hello".to_string());
+    let c = CredStashClient::decrypt_secret(b);
+    println!("{:?}", c);
 
-    let key_data = "AQIBAHh2LgYkISZhCX5HzfHk6rC/VgyqMMsZiABVXow4+2d6igEDotHJ1s4ABPG5NXkZSQtHAAAAojCBnwYJKoZIhvcNAQcGoIGRMIGOAgEAMIGIBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDD563GAbyfxh4Oq6PwIBEIBbmyvxBNaGXmXvYmwEax4mFkgQnfxsuI0pxmf0qVyB5mTvUkxwc1u1LOSRzCzUdjmZ4O9FxPLtqNxrb3mMroUHhLjNGjdGPySukO8ICb1egkwDRirys9/H39o4yw==".to_string();
-    let content = "/RQIo98=".to_string();
-    let key_data_b64 = decode(&key_data).unwrap();
-    let aes_key: Vec<u8> = key_data_b64[0..111].to_owned();
-    // let aes_key = key_data_b64[0..111];
-    let conent_b64: Vec<u8> = decode(&content).unwrap().to_owned();
-    let crypto_context = crypto::Crypto::new();
-    println!("{:?}", key_data.len());
-    let v = crypto_context.aes_decrypt_ctr3(conent_b64, aes_key);
-    println!("{:?}", v);
+    // let key_data = "AQIBAHh2LgYkISZhCX5HzfHk6rC/VgyqMMsZiABVXow4+2d6igEDotHJ1s4ABPG5NXkZSQtHAAAAojCBnwYJKoZIhvcNAQcGoIGRMIGOAgEAMIGIBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDD563GAbyfxh4Oq6PwIBEIBbmyvxBNaGXmXvYmwEax4mFkgQnfxsuI0pxmf0qVyB5mTvUkxwc1u1LOSRzCzUdjmZ4O9FxPLtqNxrb3mMroUHhLjNGjdGPySukO8ICb1egkwDRirys9/H39o4yw==".to_string();
+    // let content = "/RQIo98=".to_string();
+    // let key_data_b64 = decode(&key_data).unwrap();
+    // let aes_key: Vec<u8> = key_data_b64[0..111].to_owned();
+    // // let aes_key = key_data_b64[0..111];
+    // let conent_b64: Vec<u8> = decode(&content).unwrap().to_owned();
+    // let crypto_context = crypto::Crypto::new();
+    // println!("{:?}", key_data.len());
+    // let v = crypto_context.aes_decrypt_ctr3(conent_b64, aes_key);
+    // println!("{:?}", v);
     // todo: use the master key to decrypt it
 }
