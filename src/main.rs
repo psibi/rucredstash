@@ -6,6 +6,7 @@ use clap::{App, Arg, SubCommand};
 use rucredstash::CredStashClient;
 use std::ffi::OsString;
 mod crypto;
+use ring;
 use std::str;
 
 #[derive(Debug, PartialEq)]
@@ -174,19 +175,23 @@ fn main() {
     println!("Hello, world {:?}", test);
     let client = CredStashClient::new();
 
-    let version = client
-        .get_highest_version("credential-store".to_string(), "hello".to_string())
-        .unwrap();
-    println!("{}", version);
-
-    // let dynamo_row = client
-    //     .get_secret("credential-store".to_string(), "hello".to_string())
+    // let version = client
+    //     .get_highest_version("credential-store".to_string(), "hello".to_string())
     //     .unwrap();
+    // println!("{}", version);
 
-    // let secret = CredStashClient::decrypt_secret(dynamo_row);
-    // let secret_utf8 = match str::from_utf8(&secret) {
-    //     Ok(v) => v,
-    //     Err(e) => panic!("invalid utf8 sequence: {}", e),
-    // };
-    // println!("{}", secret_utf8);
+    let dynamo_row = client
+        .get_secret(
+            "credential-store".to_string(),
+            "hello".to_string(),
+            ring::hmac::HMAC_SHA256,
+        )
+        .unwrap();
+
+    let secret = CredStashClient::decrypt_secret(dynamo_row);
+    let secret_utf8 = match str::from_utf8(&secret) {
+        Ok(v) => v,
+        Err(e) => panic!("invalid utf8 sequence: {}", e),
+    };
+    println!("{}", secret_utf8);
 }

@@ -15,13 +15,13 @@ impl Crypto {
         }
     }
 
-    fn verify_ciphertext_integrity(
-        hmac_key: hmac::Key,
-        ciphertext: String,
-        digest_algorithm: String,
-        hmac: String,
+    pub fn verify_ciphertext_integrity(
+        &self,
+        hmac_key: &hmac::Key,
+        ciphertext: &Vec<u8>,
+        hmac: &Vec<u8>,
     ) -> bool {
-        match hmac::verify(&hmac_key, ciphertext.as_bytes(), hmac.as_bytes()) {
+        match hmac::verify(&hmac_key, ciphertext.as_ref(), hmac.as_ref()) {
             Ok(()) => true,
             Err(_) => false,
         }
