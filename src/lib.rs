@@ -7,7 +7,7 @@ use rusoto_core::region::Region;
 use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
     AttributeValue, DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput,
-    QueryInput,
+    QueryError, QueryInput,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{DecryptError, Kms, KmsClient};
@@ -36,8 +36,9 @@ pub struct DynamoResult {
 #[derive(Debug, PartialEq)]
 pub enum CredStashClientError {
     NoKeyFound,
-    KMSDecryptError(RusotoError<DecryptError>),
-    DynamoError(String),
+    KMSError(RusotoError<DecryptError>),
+    DynamoError(RusotoError<QueryError>),
+    AWSDynamoError(String),
 }
 
 impl CredStashClient {
@@ -79,9 +80,17 @@ impl CredStashClient {
         query.expression_attribute_values = Some(attr_values);
         query.table_name = table;
         let query_output = self.dynamo_client.query(query).sync();
-        let dynamo_result: Vec<HashMap<String, AttributeValue>> =
-            query_output.unwrap().items.unwrap();
-        let dr: HashMap<String, AttributeValue> = dynamo_result.into_iter().nth(0).unwrap();
+        let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
+            Ok(val) => val.items.unwrap(),
+            Err(err) => return Err(CredStashClientError::DynamoError(err)),
+        };
+        let dr: HashMap<String, AttributeValue> =
+            dynamo_result
+                .into_iter()
+                .nth(0)
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "items is Empty".to_string(),
+                ))?;
         let dynamo_key: &AttributeValue = dr.get("key").unwrap();
         let dynamo_contents: &AttributeValue = dr.get("contents").unwrap();
         let dynamo_hmac: &AttributeValue = dr.get("hmac").unwrap();
@@ -107,7 +116,7 @@ impl CredStashClient {
         query.ciphertext_blob = Bytes::from(cipher);
         let query_output = match self.kms_client.decrypt(query).sync() {
             Ok(output) => output,
-            Err(err) => return Err(CredStashClientError::KMSDecryptError(err)),
+            Err(err) => return Err(CredStashClientError::KMSError(err)),
         };
         let mut hmac_key: Bytes = match query_output.plaintext {
             None => return Err(CredStashClientError::NoKeyFound),
