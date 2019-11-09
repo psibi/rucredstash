@@ -34,9 +34,10 @@ pub struct DynamoResult {
 }
 
 #[derive(Debug, PartialEq)]
-enum CredStashClientError {
+pub enum CredStashClientError {
     NoKeyFound,
     KMSDecryptError(RusotoError<DecryptError>),
+    DynamoError(String),
 }
 
 impl CredStashClient {
@@ -54,7 +55,11 @@ impl CredStashClient {
         }
     }
 
-    pub fn get_secret(&self, table: String, key: String) -> DynamoResult {
+    pub fn get_secret(
+        &self,
+        table: String,
+        key: String,
+    ) -> Result<DynamoResult, CredStashClientError> {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
@@ -87,14 +92,14 @@ impl CredStashClient {
         let dkey1decode: Vec<u8> = decode(dkey1).unwrap();
         // pass dkey1decode to decrypt_via_kms
         let (hmac_key, aes_key) = self.decrypt_via_kms(dkey1decode).unwrap();
-        DynamoResult {
+        Ok(DynamoResult {
             dynamo_aes_key: aes_key,
             dynamo_hmac_key: hmac_key,
             dynamo_contents: decode(dynamo_contents.s.as_ref().unwrap()).unwrap(),
             dynamo_hmac: hex::decode(dynamo_hmac.b.as_ref().unwrap()).unwrap(),
             dynamo_digest: dynamo_digest.s.as_ref().unwrap().to_string(),
             dynamo_version: dynamo_version.s.as_ref().unwrap().to_owned(),
-        }
+        })
     }
 
     fn decrypt_via_kms(&self, cipher: Vec<u8>) -> Result<(Bytes, Bytes), CredStashClientError> {
@@ -104,10 +109,10 @@ impl CredStashClient {
             Ok(output) => output,
             Err(err) => return Err(CredStashClientError::KMSDecryptError(err)),
         };
-        let mut hmac_key: Bytes = match query_output.plaintext.unwrap() {
+        let mut hmac_key: Bytes = match query_output.plaintext {
             None => return Err(CredStashClientError::NoKeyFound),
             Some(val) => val,
-        }
+        };
         let aes_key = hmac_key.split_to(32);
         Ok((hmac_key, aes_key))
     }

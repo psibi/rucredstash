@@ -175,7 +175,9 @@ fn main() {
     let a = CredStashClient::new();
     println!("debug");
 
-    let b = a.get_secret("credential-store".to_string(), "hello".to_string());
+    let b = a
+        .get_secret("credential-store".to_string(), "hello".to_string())
+        .unwrap();
     let c = CredStashClient::decrypt_secret(b);
     println!("{:?}", c);
     let s = match str::from_utf8(&c) {
