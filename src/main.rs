@@ -6,6 +6,7 @@ use clap::{App, Arg, SubCommand};
 use rucredstash::CredStashClient;
 use std::ffi::OsString;
 mod crypto;
+use std::str;
 
 #[derive(Debug, PartialEq)]
 struct RuCredStashApp {
@@ -177,6 +178,11 @@ fn main() {
     let b = a.get_secret("credential-store".to_string(), "hello".to_string());
     let c = CredStashClient::decrypt_secret(b);
     println!("{:?}", c);
+    let s = match str::from_utf8(&c) {
+        Ok(v) => v,
+        Err(e) => panic!("invalid utf8 sequence: {}", e),
+    };
+    println!("{}", s);
 
     // let key_data = "AQIBAHh2LgYkISZhCX5HzfHk6rC/VgyqMMsZiABVXow4+2d6igEDotHJ1s4ABPG5NXkZSQtHAAAAojCBnwYJKoZIhvcNAQcGoIGRMIGOAgEAMIGIBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDD563GAbyfxh4Oq6PwIBEIBbmyvxBNaGXmXvYmwEax4mFkgQnfxsuI0pxmf0qVyB5mTvUkxwc1u1LOSRzCzUdjmZ4O9FxPLtqNxrb3mMroUHhLjNGjdGPySukO8ICb1egkwDRirys9/H39o4yw==".to_string();
     // let content = "/RQIo98=".to_string();

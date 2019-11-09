@@ -75,7 +75,7 @@ impl Crypto {
         g
     }
 
-    pub fn aes_decrypt_ctr3(self, ciphertext: Vec<u8>, key: Vec<u8>) -> String {
+    pub fn aes_decrypt_ctr3(self, ciphertext: Vec<u8>, key: Vec<u8>) -> Vec<u8> {
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key[0..]);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
@@ -86,8 +86,11 @@ impl Crypto {
             c2
         };
         // let g = f.to_owned();
-        let g: String = std::str::from_utf8_mut(f).unwrap().to_string();
-        g
+
+        // let g: String = std::str::from_utf8_mut(f).unwrap().to_string();
+        // g
+        // f.iter().cloned().collect()
+        f.to_vec()
     }
     // fn encrypt(plaintext: String, key: String, nonce: String)
 }

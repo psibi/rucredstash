@@ -25,8 +25,8 @@ pub struct CredStashClient {
 
 #[derive(Debug, PartialEq)]
 pub struct DynamoResult {
-    dynamo_aes_key: Vec<u8>,  // Key name
-    dynamo_hmac_key: Vec<u8>, // Key name
+    dynamo_aes_key: Bytes,    // Key name
+    dynamo_hmac_key: Bytes,   // Key name
     dynamo_contents: Vec<u8>, // Key value which we are interested to decrypt
     dynamo_hmac: Vec<u8>,     // HMAC Digest
     dynamo_digest: String,    // Digest type
@@ -80,10 +80,10 @@ impl CredStashClient {
         let dkey1: &String = dynamo_key.s.as_ref().unwrap();
         let dkey1decode: Vec<u8> = decode(dkey1).unwrap();
         // pass dkey1decode to decrypt_via_kms
-        self.decrypt_via_kms(dkey1decode);
+        let (hmac_key, aes_key) = self.decrypt_via_kms(dkey1decode);
         DynamoResult {
-            dynamo_aes_key: decode(dkey1).unwrap()[0..32].to_owned(),
-            dynamo_hmac_key: decode(dkey1).unwrap()[32..].to_owned(),
+            dynamo_aes_key: aes_key,
+            dynamo_hmac_key: hmac_key,
             dynamo_contents: decode(dynamo_contents.s.as_ref().unwrap()).unwrap(),
             dynamo_hmac: hex::decode(dynamo_hmac.b.as_ref().unwrap()).unwrap(),
             dynamo_digest: dynamo_digest.s.as_ref().unwrap().to_string(),
@@ -91,15 +91,20 @@ impl CredStashClient {
         }
     }
 
-    fn decrypt_via_kms(&self, cipher: Vec<u8>) -> () {
+    fn decrypt_via_kms(&self, cipher: Vec<u8>) -> (Bytes, Bytes) {
         let mut query: DecryptRequest = Default::default();
         query.ciphertext_blob = Bytes::from(cipher);
         let query_output = self.kms_client.decrypt(query).sync().unwrap();
-        let ptext: Bytes = query_output.plaintext.unwrap();
+        let mut ptext: Bytes = query_output.plaintext.unwrap();
         println!("ptext {:?}", ptext);
         println!("ptext len {:?}", ptext.len());
-        let jack: Vec<u8> = ptext.into_iter().collect();
-        ()
+        let hmac_key = ptext.split_to(32);
+        println!("ptext {:?}", ptext);
+        println!("ptext len {:?} {:?}", ptext.len(), hmac_key.len());
+        // Bytes to Vector conversion
+        // let jack: Vec<u8> = ptext.into_iter().collect();
+        // ptext is aes_key now
+        (hmac_key, ptext)
         // query_output.plaintext.into()
     }
 
@@ -107,9 +112,12 @@ impl CredStashClient {
         ()
     }
 
-    pub fn decrypt_secret(row: DynamoResult) -> String {
+    pub fn decrypt_secret(row: DynamoResult) -> Vec<u8> {
         let crypto_context = crypto::Crypto::new();
-        crypto_context.aes_decrypt_ctr3(row.dynamo_contents, row.dynamo_aes_key)
+        crypto_context.aes_decrypt_ctr3(
+            row.dynamo_contents,
+            row.dynamo_aes_key.into_iter().collect(),
+        )
     }
 }
 
