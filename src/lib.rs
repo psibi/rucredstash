@@ -10,7 +10,10 @@ use rusoto_dynamodb::{
     QueryError, QueryInput,
 };
 use rusoto_kms::DecryptRequest;
-use rusoto_kms::{DecryptError, Kms, KmsClient};
+use rusoto_kms::{
+    DecryptError, GenerateDataKeyError, GenerateDataKeyRequest, GenerateDataKeyResponse, Kms,
+    KmsClient,
+};
 use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
@@ -18,6 +21,30 @@ mod crypto;
 use base64::{decode, DecodeError};
 use bytes::Bytes;
 use hex::FromHexError;
+
+const PAD_LEN: usize = 19;
+
+fn pad_integer(num: u64) -> String {
+    let num_str = num.to_string();
+    if (num_str.len() >= PAD_LEN) {
+        return num_str;
+    } else {
+        let remaining = PAD_LEN - num_str.len();
+        let mut zeros: String = "0".to_string().repeat(remaining);
+        zeros.push_str(&num_str);
+        zeros
+    }
+}
+
+#[test]
+fn pad_integer_check() {
+    assert_eq!(pad_integer(1), "0000000000000000001".to_string());
+}
+
+#[test]
+fn pad_integer_check_big_num() {
+    assert_eq!(pad_integer(123), "0000000000000000123".to_string());
+}
 
 pub struct CredStashClient {
     dynamo_client: DynamoDbClient,
@@ -69,6 +96,64 @@ impl CredStashClient {
             dynamo_client,
             kms_client,
         }
+    }
+
+    pub fn get_highest_version(
+        &self,
+        table: String,
+        key: String,
+    ) -> Result<String, CredStashClientError> {
+        let mut query: QueryInput = Default::default();
+        query.scan_index_forward = Some(false);
+        query.limit = Some(1);
+        query.consistent_read = Some(true);
+        let cond: String = "#n = :nameValue".to_string();
+        query.key_condition_expression = Some(cond);
+
+        let mut attr_names = HashMap::new();
+        attr_names.insert("#n".to_string(), "name".to_string());
+        query.expression_attribute_names = Some(attr_names);
+
+        let mut strAttr: AttributeValue = AttributeValue::default();
+        strAttr.s = Some(key);
+
+        let mut attr_values = HashMap::new();
+        attr_values.insert(":nameValue".to_string(), strAttr);
+        query.expression_attribute_values = Some(attr_values);
+        query.table_name = table;
+
+        query.projection_expression = Some("version".to_string());
+        let query_output = self.dynamo_client.query(query).sync();
+
+        let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
+            Ok(val) => val.items.ok_or(CredStashClientError::AWSDynamoError(
+                "items column is missing".to_string(),
+            ))?,
+            Err(err) => return Err(CredStashClientError::DynamoError(err)),
+        };
+        let item: HashMap<String, AttributeValue> =
+            dynamo_result
+                .into_iter()
+                .nth(0)
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "items is Empty".to_string(),
+                ))?;
+        let dynamo_version: &AttributeValue =
+            item.get("version")
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "version column is missing".to_string(),
+                ))?;
+        Ok(dynamo_version
+            .s
+            .as_ref()
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "version column value not present".to_string(),
+            ))?
+            .to_owned())
+    }
+
+    pub fn put_secret(&self, credential: String, value: String, context: Option<String>) -> () {
+        ()
     }
 
     pub fn get_secret(
@@ -148,7 +233,7 @@ impl CredStashClient {
                 ),
             )?)?,
             dynamo_hmac: hex::decode(dynamo_hmac.b.as_ref().ok_or(
-                CredStashClientError::AWSDynamoError("hmacl column value not present".to_string()),
+                CredStashClientError::AWSDynamoError("hmac column value not present".to_string()),
             )?)?,
             dynamo_digest: dynamo_digest
                 .s
@@ -165,6 +250,16 @@ impl CredStashClient {
                 ))?
                 .to_owned(),
         })
+    }
+
+    fn generate_key_via_kms(
+        &self,
+        number_of_bytes: i64,
+    ) -> Result<GenerateDataKeyResponse, RusotoError<GenerateDataKeyError>> {
+        let mut query: GenerateDataKeyRequest = Default::default();
+        query.key_id = "alias/credstash".to_string();
+        query.number_of_bytes = Some(number_of_bytes);
+        self.kms_client.generate_data_key(query).sync()
     }
 
     fn decrypt_via_kms(&self, cipher: Vec<u8>) -> Result<(Bytes, Bytes), CredStashClientError> {
