@@ -52,3 +52,9 @@ AWS Quering for getting latest version:
 ``` shellsession
 $ aws-env aws dynamodb query --table-name credential-store --projection-expression "version" --key-condition-expression "#n = :nameValue" --expression-attribute-names '{"#n": "name"}' --expression-attribute-values '{":nameValue":{"S":"hello"}}'
 ```
+
+
+## Todo
+
+* Verify HMAC in the get_secret function
+
