@@ -3,7 +3,8 @@
 ## Default values
 
 table: `credential-store`
-key: `credstash`
+key: `alias/credstash`
+Default digest algorithm: `SHA256`
 
 ## Implementation nots
 
@@ -33,9 +34,6 @@ key: `credstash`
 Algorithm: AES CTR mode
 Key size: 32 bytes
 
-* Validate HMAC
-* Decrypt it
-
 The "key" column you have in DynamoDB is 64 bytes. The first half of
 the it is used for AES operation. The second half of it is used as
 HMAC key. But the "key" column is encrypted using the master key. You
@@ -45,6 +43,11 @@ need to decrypt that first.
 
 * What happens if you put the same key multiple times ?
 
+## Todo:
+
+* put command
+* encryption context for put/get
+
 ## AWS Queries
 
 AWS Quering for getting latest version:
@@ -53,8 +56,27 @@ AWS Quering for getting latest version:
 $ aws-env aws dynamodb query --table-name credential-store --projection-expression "version" --key-condition-expression "#n = :nameValue" --expression-attribute-names '{"#n": "name"}' --expression-attribute-values '{":nameValue":{"S":"hello"}}'
 ```
 
+## Credstash behavior
 
-## Todo
+We try to stay close to the behavior of credstash as much as possible.
 
-* Verify HMAC in the get_secret function
+``` shellsession
+~/g/rucredstash (master) $ aws-env credstash getall
+{
+    "hello": "world"
+}
+```
 
+Todo: Test the above with encryption context, different versions.
+
+## Things to do in Future version
+
+* Wildcard handling
+
+## Reference
+
+* https://docs.rs/ring/0.16.9/ring/hmac/struct.Key.html
+* https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html
+* https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html
+* https://docs.rs/bytes/0.4.12/bytes/struct.Bytes.html
+* https://github.com/fugue/credstash/blob/master/credstash.py
