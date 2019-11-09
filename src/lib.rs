@@ -4,13 +4,13 @@ extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 
 use rusoto_core::region::Region;
-use rusoto_core::RusotoError;
+use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
     AttributeValue, DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput,
     QueryInput,
 };
 use rusoto_kms::DecryptRequest;
-use rusoto_kms::{Kms, KmsClient};
+use rusoto_kms::{DecryptError, Kms, KmsClient};
 use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
@@ -31,6 +31,12 @@ pub struct DynamoResult {
     dynamo_hmac: Vec<u8>,     // HMAC Digest
     dynamo_digest: String,    // Digest type
     dynamo_version: String,   // Version
+}
+
+#[derive(Debug, PartialEq)]
+enum CredStashClientError {
+    NoKeyFound,
+    KMSDecryptError(RusotoError<DecryptError>),
 }
 
 impl CredStashClient {
@@ -61,7 +67,7 @@ impl CredStashClient {
         query.expression_attribute_names = Some(attr_names);
 
         let mut strAttr: AttributeValue = AttributeValue::default();
-        strAttr.s = Some("hello".to_string());
+        strAttr.s = Some(key);
 
         let mut attr_values = HashMap::new();
         attr_values.insert(":nameValue".to_string(), strAttr);
@@ -80,7 +86,7 @@ impl CredStashClient {
         let dkey1: &String = dynamo_key.s.as_ref().unwrap();
         let dkey1decode: Vec<u8> = decode(dkey1).unwrap();
         // pass dkey1decode to decrypt_via_kms
-        let (hmac_key, aes_key) = self.decrypt_via_kms(dkey1decode);
+        let (hmac_key, aes_key) = self.decrypt_via_kms(dkey1decode).unwrap();
         DynamoResult {
             dynamo_aes_key: aes_key,
             dynamo_hmac_key: hmac_key,
@@ -91,21 +97,19 @@ impl CredStashClient {
         }
     }
 
-    fn decrypt_via_kms(&self, cipher: Vec<u8>) -> (Bytes, Bytes) {
+    fn decrypt_via_kms(&self, cipher: Vec<u8>) -> Result<(Bytes, Bytes), CredStashClientError> {
         let mut query: DecryptRequest = Default::default();
         query.ciphertext_blob = Bytes::from(cipher);
-        let query_output = self.kms_client.decrypt(query).sync().unwrap();
-        let mut ptext: Bytes = query_output.plaintext.unwrap();
-        println!("ptext {:?}", ptext);
-        println!("ptext len {:?}", ptext.len());
-        let aes_key = ptext.split_to(32);
-        println!("ptext {:?}", ptext);
-        println!("ptext len {:?} {:?}", ptext.len(), aes_key.len());
-        // Bytes to Vector conversion
-        // let jack: Vec<u8> = ptext.into_iter().collect();
-        // ptext is aes_key now
-        (ptext, aes_key)
-        // query_output.plaintext.into()
+        let query_output = match self.kms_client.decrypt(query).sync() {
+            Ok(output) => output,
+            Err(err) => return Err(CredStashClientError::KMSDecryptError(err)),
+        };
+        let mut hmac_key: Bytes = match query_output.plaintext.unwrap() {
+            None => return Err(CredStashClientError::NoKeyFound),
+            Some(val) => val,
+        }
+        let aes_key = hmac_key.split_to(32);
+        Ok((hmac_key, aes_key))
     }
 
     pub fn fetch_customer_managed_keys(self, alias: String) -> () {
