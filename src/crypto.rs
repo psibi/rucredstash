@@ -31,20 +31,20 @@ impl Crypto {
     //     ()
     // }
 
-    fn aes_encrypt_ctr(self, plaintext: String, key: String) -> Vec<u8> {
+    pub fn aes_encrypt_ctr(self, plaintext: Vec<u8>, key: bytes::Bytes) -> Vec<u8> {
         // credstash uses AES symmetric encryption in CTR mode.
         // The key size used is 32 bytes (256 bits).
-        let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(key.as_bytes());
+        let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
         let mut c1 = plaintext.clone();
         let f: &mut [u8] = unsafe {
-            let c2: &mut [u8] = c1.as_bytes_mut();
+            let c2: &mut [u8] = c1.as_mut();
             cipher.apply_keystream(c2);
             c2
         };
         // let g : String = std::str::from_utf8_mut(f).unwrap().to_string();
-        std::vec::Vec::from(f)
+        f.to_vec()
     }
 
     fn aes_decrypt_ctr(self, ciphertext: String, key: String) -> String {
@@ -92,6 +92,7 @@ impl Crypto {
         // f.iter().cloned().collect()
         f.to_vec()
     }
+
     // fn encrypt(plaintext: String, key: String, nonce: String)
 }
 

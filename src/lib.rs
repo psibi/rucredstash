@@ -18,10 +18,10 @@ use std::collections::HashMap;
 use std::result::Result;
 use std::vec::Vec;
 mod crypto;
-use base64::{decode, DecodeError};
+use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use hex::FromHexError;
-use ring::hmac::{Algorithm, Key};
+use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
 
@@ -66,11 +66,19 @@ pub struct DynamoResult {
 pub enum CredStashClientError {
     NoKeyFound,
     KMSError(RusotoError<DecryptError>),
+    KMSDataKeyError(RusotoError<GenerateDataKeyError>),
     DynamoError(RusotoError<QueryError>),
     AWSDynamoError(String),
+    AWSKMSError(String),
     CredstashDecodeFalure(DecodeError),
     CredstashHexFailure(FromHexError),
     HMacMismatch,
+}
+
+impl From<RusotoError<GenerateDataKeyError>> for CredStashClientError {
+    fn from(error: RusotoError<GenerateDataKeyError>) -> Self {
+        CredStashClientError::KMSDataKeyError(error)
+    }
 }
 
 impl From<DecodeError> for CredStashClientError {
@@ -154,8 +162,36 @@ impl CredStashClient {
             .to_owned())
     }
 
-    pub fn put_secret(&self, credential: String, value: String, context: Option<String>) -> () {
-        ()
+    pub fn put_secret(
+        &self,
+        credential: String,
+        value: String,
+        context: Option<String>,
+        digest_algorithm: Algorithm,
+    ) -> Result<(), CredStashClientError> {
+        let query_output = self.generate_key_via_kms(64)?;
+        // todo: Refactor this code
+        let mut hmac_key: Bytes = match query_output.plaintext {
+            None => return Err(CredStashClientError::NoKeyFound),
+            Some(val) => val,
+        };
+        let aes_key = hmac_key.split_to(32);
+        let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
+        let crypto_context = crypto::Crypto::new();
+        let aes_enc = crypto_context.aes_encrypt_ctr(value.as_bytes().to_owned(), aes_key);
+        let hmac_en = sign(&hmac_ring_key, &aes_enc);
+        let ciphertext_blob = query_output
+            .ciphertext_blob
+            .ok_or(CredStashClientError::AWSKMSError(
+                "ciphertext_blob is empty".to_string(),
+            ))?
+            .to_vec();
+        let version = 1;
+        let base64_aes_enc = encode(&aes_enc);
+        let base64_cipher_blob = encode(&ciphertext_blob);
+        let hex_hmac = hex::encode(hmac_en);
+        // todo: Add new row according to the pseudocode
+        Ok(())
     }
 
     pub fn get_secret(
