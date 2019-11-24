@@ -7,7 +7,7 @@ use rusoto_core::region::Region;
 use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
     AttributeValue, DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput,
-    QueryError, QueryInput,
+    PutItemError, PutItemInput, QueryError, QueryInput,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -21,6 +21,7 @@ mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use hex::FromHexError;
+use ring;
 use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
@@ -37,6 +38,29 @@ fn pad_integer(num: u64) -> String {
     }
 }
 
+fn get_algorithm(algorithm: Algorithm) -> String {
+    if (algorithm == ring::hmac::HMAC_SHA384) {
+        return "SHA384".to_string();
+    }
+    if (algorithm == ring::hmac::HMAC_SHA256) {
+        return "SHA256".to_string();
+    }
+    if (algorithm == ring::hmac::HMAC_SHA512) {
+        return "SHA512".to_string();
+    } else {
+        return "SHA256".to_string();
+    }
+    // todo: handle everything
+    // let algo = match algorithm {
+    //     HMAC_SHA384 => "SHA384".to_string(),
+    //     HMAC_SHA256 => "SHA256".to_string(),
+    //     HMAC_SHA512 => "SHA512".to_string(),
+    //     HMAC_SHA1_FOR_LEGACY_USE_ONLY => "SHA".to_string(),
+    //     _ => panic!("fix me"),
+    // };
+    // algo
+}
+
 #[test]
 fn pad_integer_check() {
     assert_eq!(pad_integer(1), "0000000000000000001".to_string());
@@ -45,6 +69,16 @@ fn pad_integer_check() {
 #[test]
 fn pad_integer_check_big_num() {
     assert_eq!(pad_integer(123), "0000000000000000123".to_string());
+}
+
+#[test]
+fn get_algo512_check() {
+    assert_eq!(get_algorithm(ring::hmac::HMAC_SHA512), "SHA512".to_string());
+}
+
+#[test]
+fn get_algo256_check() {
+    assert_eq!(get_algorithm(ring::hmac::HMAC_SHA256), "SHA256".to_string());
 }
 
 pub struct CredStashClient {
@@ -68,6 +102,7 @@ pub enum CredStashClientError {
     KMSError(RusotoError<DecryptError>),
     KMSDataKeyError(RusotoError<GenerateDataKeyError>),
     DynamoError(RusotoError<QueryError>),
+    DynamoError2(RusotoError<PutItemError>),
     AWSDynamoError(String),
     AWSKMSError(String),
     CredstashDecodeFalure(DecodeError),
@@ -78,6 +113,12 @@ pub enum CredStashClientError {
 impl From<RusotoError<GenerateDataKeyError>> for CredStashClientError {
     fn from(error: RusotoError<GenerateDataKeyError>) -> Self {
         CredStashClientError::KMSDataKeyError(error)
+    }
+}
+
+impl From<RusotoError<PutItemError>> for CredStashClientError {
+    fn from(error: RusotoError<PutItemError>) -> Self {
+        CredStashClientError::DynamoError2(error)
     }
 }
 
@@ -165,8 +206,10 @@ impl CredStashClient {
     pub fn put_secret(
         &self,
         credential: String,
+        version: String,
         value: String,
         context: Option<String>,
+        comment: Option<String>,
         digest_algorithm: Algorithm,
     ) -> Result<(), CredStashClientError> {
         let query_output = self.generate_key_via_kms(64)?;
@@ -186,11 +229,39 @@ impl CredStashClient {
                 "ciphertext_blob is empty".to_string(),
             ))?
             .to_vec();
-        let version = 1;
         let base64_aes_enc = encode(&aes_enc);
         let base64_cipher_blob = encode(&ciphertext_blob);
         let hex_hmac = hex::encode(hmac_en);
-        // todo: Add new row according to the pseudocode
+        let mut put_item: PutItemInput = Default::default();
+        put_item.condition_expression = Some("attribute_not_exists(name)".to_string());
+        let mut item = HashMap::new();
+        let mut item_name = AttributeValue::default();
+        item_name.s = Some(credential);
+        item.insert("name".to_string(), item_name);
+        let mut item_version = AttributeValue::default();
+        item_version.s = Some(version);
+        item.insert("version".to_string(), item_version);
+        let mut nitem = comment.map_or(item.clone(), |com| {
+            let mut item_comment = AttributeValue::default();
+            item_comment.s = Some(com);
+            item.insert("comment".to_string(), item_comment);
+            item
+        });
+        let mut item_key = AttributeValue::default();
+        item_key.s = Some(base64_aes_enc);
+        nitem.insert("key".to_string(), item_key);
+        let mut item_contents = AttributeValue::default();
+        item_contents.s = Some(base64_cipher_blob);
+        nitem.insert("contents".to_string(), item_contents);
+        let mut item_hmac = AttributeValue::default();
+        item_hmac.s = Some(hex_hmac);
+        nitem.insert("hmac".to_string(), item_hmac);
+        let mut item_digest = AttributeValue::default();
+        item_digest.s = Some(get_algorithm(digest_algorithm));
+        nitem.insert("digest".to_string(), item_digest);
+        put_item.item = nitem;
+        self.dynamo_client.put_item(put_item).sync()?;
+        // todo: next step: test put_secret now
         Ok(())
     }
 
