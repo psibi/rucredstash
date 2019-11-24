@@ -261,7 +261,7 @@ impl CredStashClient {
         item_contents.s = Some(base64_aes_enc);
         nitem.insert("contents".to_string(), item_contents);
         let mut item_hmac = AttributeValue::default();
-        item_hmac.s = Some(hex_hmac);
+        item_hmac.b = Some(Bytes::from(hex_hmac));
         nitem.insert("hmac".to_string(), item_hmac);
         let mut item_digest = AttributeValue::default();
         item_digest.s = Some(get_algorithm(digest_algorithm));

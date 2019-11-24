@@ -29,6 +29,11 @@ Default digest algorithm: `SHA256`
   - Use this function: https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html#tymethod.put_item
   - Have this condition: https://github.com/fugue/credstash/blob/014d96bbde5dc474e155383760bb4b7f6078f761/credstash.py#L316
 
+## Done
+
+* Miniature version of get algorithm
+* Miniature version of put algorithm
+
 ## Decrypt algorithm
 
 Algorithm: AES CTR mode
