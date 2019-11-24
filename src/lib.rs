@@ -205,9 +205,10 @@ impl CredStashClient {
 
     pub fn put_secret(
         &self,
-        credential: String,
+        table_name: String,
+        credential: String, // Key part. (Or the name column in dynamodb)
         version: String,
-        value: String,
+        value: String, // This should be encrypted
         context: Option<String>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
@@ -218,22 +219,28 @@ impl CredStashClient {
             None => return Err(CredStashClientError::NoKeyFound),
             Some(val) => val,
         };
+        let full_key = hmac_key.clone();
+        let full_key_en = encode(&full_key); // Encoding of full data key
         let aes_key = hmac_key.split_to(32);
         let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
         let crypto_context = crypto::Crypto::new();
-        let aes_enc = crypto_context.aes_encrypt_ctr(value.as_bytes().to_owned(), aes_key);
-        let hmac_en = sign(&hmac_ring_key, &aes_enc);
+        let aes_enc = crypto_context.aes_encrypt_ctr(value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
+        let hmac_en = sign(&hmac_ring_key, &aes_enc); // HMAC of encrypted text
         let ciphertext_blob = query_output
             .ciphertext_blob
             .ok_or(CredStashClientError::AWSKMSError(
                 "ciphertext_blob is empty".to_string(),
             ))?
             .to_vec();
-        let base64_aes_enc = encode(&aes_enc);
-        let base64_cipher_blob = encode(&ciphertext_blob);
+        let base64_aes_enc = encode(&aes_enc); // Base64 of encrypted text
+        let base64_cipher_blob = encode(&ciphertext_blob); // Encoding of full key encrypted with master key
         let hex_hmac = hex::encode(hmac_en);
         let mut put_item: PutItemInput = Default::default();
-        put_item.condition_expression = Some("attribute_not_exists(name)".to_string());
+        put_item.table_name = table_name;
+        let mut attr_names = HashMap::new();
+        attr_names.insert("#n".to_string(), "name".to_string());
+        put_item.expression_attribute_names = Some(attr_names);
+        put_item.condition_expression = Some("attribute_not_exists(#n)".to_string());
         let mut item = HashMap::new();
         let mut item_name = AttributeValue::default();
         item_name.s = Some(credential);
@@ -248,10 +255,10 @@ impl CredStashClient {
             item
         });
         let mut item_key = AttributeValue::default();
-        item_key.s = Some(base64_aes_enc);
+        item_key.s = Some(base64_cipher_blob);
         nitem.insert("key".to_string(), item_key);
         let mut item_contents = AttributeValue::default();
-        item_contents.s = Some(base64_cipher_blob);
+        item_contents.s = Some(base64_aes_enc);
         nitem.insert("contents".to_string(), item_contents);
         let mut item_hmac = AttributeValue::default();
         item_hmac.s = Some(hex_hmac);
