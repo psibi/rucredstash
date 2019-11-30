@@ -175,11 +175,13 @@ fn main() {
     println!("Hello, world {:?}", test);
     let client = CredStashClient::new();
 
-    let version = client
-        .get_highest_version("credential-store".to_string(), "hello".to_string())
-        .unwrap();
-    println!("{}", version);
+    // Get version
+    // let version = client
+    //     .get_highest_version("credential-store".to_string(), "hello".to_string())
+    //     .unwrap();
+    // println!("{}", version);
 
+    // Put secret
     // let test = client.put_secret(
     //     "credential-store".to_string(),
     //     "testkey".to_string(),
@@ -192,19 +194,25 @@ fn main() {
 
     // println!("{:?}", test.unwrap());
 
+    // Get Secret
+    // let dynamo_row = client
+    //     .get_secret(
+    //         "credential-store".to_string(),
+    //         "testkey".to_string(),
+    //         ring::hmac::HMAC_SHA256,
+    //     )
+    //     .unwrap();
+
+    // let secret = CredStashClient::decrypt_secret(dynamo_row);
+    // let secret_utf8 = match str::from_utf8(&secret) {
+    //     Ok(v) => v,
+    //     Err(e) => panic!("invalid utf8 sequence: {}", e),
+    // };
+
+    // println!("{}", secret_utf8);
+
+    // Delete secret
     let dynamo_row = client
-        .get_secret(
-            "credential-store".to_string(),
-            "testkey".to_string(),
-            ring::hmac::HMAC_SHA256,
-        )
+        .delete_secret("credential-store".to_string(), "testkey".to_string())
         .unwrap();
-
-    let secret = CredStashClient::decrypt_secret(dynamo_row);
-    let secret_utf8 = match str::from_utf8(&secret) {
-        Ok(v) => v,
-        Err(e) => panic!("invalid utf8 sequence: {}", e),
-    };
-
-    println!("{}", secret_utf8);
 }

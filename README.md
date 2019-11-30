@@ -1,5 +1,10 @@
 https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html
 
+Workflow:
+
+* credstash setup
+* create kms key via AWS Console
+
 db:
 
 get_item: https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html#tymethod.get_item
@@ -15,3 +20,11 @@ decrypt: https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html#tymethod.de
 get_item
 decret data column
 d
+
+~/g/rucredstash (master) $ aws-env credstash setup
+Creating table...
+Waiting for table to be created...
+Adding tags...
+Table has been created. Go read the README about how to create your KMS key
+~/g/rucredstash (master) $ aws-env credstash put hello world
+hello has been stored

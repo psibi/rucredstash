@@ -6,8 +6,8 @@ extern crate rusoto_dynamodb;
 use rusoto_core::region::Region;
 use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
-    AttributeValue, DynamoDb, DynamoDbClient, ListTablesError, ListTablesInput, ListTablesOutput,
-    PutItemError, PutItemInput, QueryError, QueryInput,
+    AttributeValue, DeleteItemError, DeleteItemInput, DynamoDb, DynamoDbClient, ListTablesError,
+    ListTablesInput, ListTablesOutput, PutItemError, PutItemInput, QueryError, QueryInput,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -134,6 +134,12 @@ impl From<FromHexError> for CredStashClientError {
     }
 }
 
+impl From<RusotoError<DeleteItemError>> for CredStashClientError {
+    fn from(error: RusotoError<DeleteItemError>) -> Self {
+        CredStashClientError::AWSDynamoError(error.to_string())
+    }
+}
+
 impl CredStashClient {
     pub fn new() -> Self {
         Self::new_from()
@@ -201,6 +207,47 @@ impl CredStashClient {
                 "version column value not present".to_string(),
             ))?
             .to_owned())
+    }
+
+    pub fn delete_secret(
+        &self,
+        table_name: String,
+        credential: String,
+    ) -> Result<(), CredStashClientError> {
+        let mut query: QueryInput = Default::default();
+        let cond: String = "#n = :nameValue".to_string();
+        query.key_condition_expression = Some(cond);
+
+        let mut attr_names = HashMap::new();
+        attr_names.insert("#n".to_string(), "name".to_string());
+        query.expression_attribute_names = Some(attr_names);
+
+        query.projection_expression = Some("#n, version".to_string());
+
+        let mut strAttr: AttributeValue = AttributeValue::default();
+        strAttr.s = Some(credential);
+
+        let mut attr_values = HashMap::new();
+        attr_values.insert(":nameValue".to_string(), strAttr);
+        query.expression_attribute_values = Some(attr_values);
+        query.table_name = table_name.clone();
+        let query_output = self.dynamo_client.query(query).sync();
+        println!("another: {:?}", query_output);
+        let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
+            Ok(val) => val.items.ok_or(CredStashClientError::AWSDynamoError(
+                "items column is missing".to_string(),
+            ))?,
+            Err(err) => return Err(CredStashClientError::DynamoError(err)),
+        };
+        let mut del_query: DeleteItemInput = Default::default();
+        del_query.table_name = table_name;
+        for item in dynamo_result {
+            let mut delq = del_query.clone();
+            delq.key = item;
+            self.dynamo_client.delete_item(delq).sync()?;
+        }
+        // println!("result {:?}", dynamo_result);
+        Ok(())
     }
 
     pub fn put_secret(
