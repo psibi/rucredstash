@@ -3,11 +3,14 @@ extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 
+use std::clone::Clone;
+
 use rusoto_core::region::Region;
 use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
-    AttributeValue, DeleteItemError, DeleteItemInput, DynamoDb, DynamoDbClient, ListTablesError,
-    ListTablesInput, ListTablesOutput, PutItemError, PutItemInput, QueryError, QueryInput,
+    AttributeValue, DeleteItemError, DeleteItemInput, DeleteItemOutput, DynamoDb, DynamoDbClient,
+    ListTablesError, ListTablesInput, ListTablesOutput, PutItemError, PutItemInput, QueryError,
+    QueryInput, QueryOutput, ScanError, ScanInput, ScanOutput,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -140,6 +143,18 @@ impl From<RusotoError<DeleteItemError>> for CredStashClientError {
     }
 }
 
+impl From<RusotoError<QueryError>> for CredStashClientError {
+    fn from(error: RusotoError<QueryError>) -> Self {
+        CredStashClientError::AWSDynamoError(error.to_string())
+    }
+}
+
+impl From<RusotoError<ScanError>> for CredStashClientError {
+    fn from(error: RusotoError<ScanError>) -> Self {
+        CredStashClientError::AWSDynamoError(error.to_string())
+    }
+}
+
 impl CredStashClient {
     pub fn new() -> Self {
         Self::new_from()
@@ -153,6 +168,21 @@ impl CredStashClient {
             dynamo_client,
             kms_client,
         }
+    }
+
+    pub fn list_secrets(&self, table: String) -> Result<ScanOutput, CredStashClientError> {
+        let mut scan_query: ScanInput = Default::default();
+
+        scan_query.projection_expression = Some("#n, version, #c".to_string());
+
+        let mut attr_names = HashMap::new();
+        attr_names.insert("#n".to_string(), "name".to_string());
+        attr_names.insert("#c".to_string(), "comment".to_string());
+        scan_query.expression_attribute_names = Some(attr_names);
+        scan_query.table_name = table;
+
+        let result = self.dynamo_client.scan(scan_query).sync()?;
+        Ok(result)
     }
 
     pub fn get_highest_version(
@@ -209,11 +239,12 @@ impl CredStashClient {
             .to_owned())
     }
 
-    pub fn delete_secret(
+    fn retrieve_items(
         &self,
         table_name: String,
         credential: String,
-    ) -> Result<(), CredStashClientError> {
+        exclusive_start_key: Option<HashMap<String, AttributeValue>>,
+    ) -> Result<QueryOutput, CredStashClientError> {
         let mut query: QueryInput = Default::default();
         let cond: String = "#n = :nameValue".to_string();
         query.key_condition_expression = Some(cond);
@@ -231,23 +262,77 @@ impl CredStashClient {
         attr_values.insert(":nameValue".to_string(), strAttr);
         query.expression_attribute_values = Some(attr_values);
         query.table_name = table_name.clone();
-        let query_output = self.dynamo_client.query(query).sync();
-        println!("another: {:?}", query_output);
-        let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
-            Ok(val) => val.items.ok_or(CredStashClientError::AWSDynamoError(
-                "items column is missing".to_string(),
-            ))?,
-            Err(err) => return Err(CredStashClientError::DynamoError(err)),
-        };
+        query.exclusive_start_key = exclusive_start_key;
+        let result = self.dynamo_client.query(query).sync()?;
+        Ok(result)
+    }
+
+    fn delete_items(
+        &self,
+        table_name: String,
+        items: Vec<HashMap<String, AttributeValue>>,
+    ) -> Vec<Result<DeleteItemOutput, RusotoError<DeleteItemError>>> {
         let mut del_query: DeleteItemInput = Default::default();
         del_query.table_name = table_name;
-        for item in dynamo_result {
-            let mut delq = del_query.clone();
-            delq.key = item;
-            self.dynamo_client.delete_item(delq).sync()?;
+        let result: Vec<Result<DeleteItemOutput, RusotoError<DeleteItemError>>> = items
+            .iter()
+            .map(|item| {
+                let mut delq = del_query.clone();
+                delq.key = item.clone();
+                let dom: Result<DeleteItemOutput, RusotoError<DeleteItemError>> =
+                    self.dynamo_client.delete_item(delq).sync();
+                dom
+            })
+            .collect();
+        result
+    }
+
+    fn aux_delete(
+        &self,
+        output: Option<QueryOutput>,
+        table_name: String,
+        credential: String,
+        acc: Vec<Result<DeleteItemOutput, RusotoError<DeleteItemError>>>,
+    ) -> Result<Vec<Result<DeleteItemOutput, RusotoError<DeleteItemError>>>, CredStashClientError>
+    {
+        match output {
+            None => Ok(acc),
+            Some(op) => match op.last_evaluated_key {
+                None => Ok(acc),
+                Some(hashmap) => {
+                    let query_output =
+                        self.retrieve_items(table_name.clone(), credential.clone(), Some(hashmap))?;
+                    let items =
+                        query_output
+                            .clone()
+                            .items
+                            .ok_or(CredStashClientError::AWSDynamoError(
+                                "items column is missing".to_string(),
+                            ))?;
+                    let mut result = self.delete_items(table_name.clone(), items);
+                    result.extend(acc);
+                    self.aux_delete(Some(query_output), table_name, credential, result)
+                }
+            },
         }
-        // println!("result {:?}", dynamo_result);
-        Ok(())
+    }
+
+    pub fn delete_secret(
+        &self,
+        table_name: String,
+        credential: String,
+    ) -> Result<Vec<Result<DeleteItemOutput, RusotoError<DeleteItemError>>>, CredStashClientError>
+    {
+        let query_output = self.retrieve_items(table_name.clone(), credential.clone(), None)?;
+        let dynamo_result: Vec<HashMap<String, AttributeValue>> = query_output
+            .clone()
+            .items
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "items column is missing".to_string(),
+            ))?;
+
+        let mut result = self.delete_items(table_name.clone(), dynamo_result);
+        self.aux_delete(Some(query_output), table_name, credential, result)
     }
 
     pub fn put_secret(

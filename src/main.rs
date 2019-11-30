@@ -212,7 +212,11 @@ fn main() {
     // println!("{}", secret_utf8);
 
     // Delete secret
-    let dynamo_row = client
-        .delete_secret("credential-store".to_string(), "testkey".to_string())
-        .unwrap();
+    // let dynamo_row = client
+    //     .delete_secret("credential-store".to_string(), "hello".to_string())
+    //     .unwrap();
+
+    // list secrets
+    let dynamo_row = client.list_secrets("credential-store".to_string()).unwrap();
+    println!("{:?}", dynamo_row);
 }
