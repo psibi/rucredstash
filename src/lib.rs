@@ -93,14 +93,14 @@ pub struct CredStashClient {
 // Probably rename it to CredstashItem ?
 #[derive(Debug)]
 pub struct DynamoResult {
-    dynamo_aes_key: Bytes,    // Key name
-    dynamo_hmac_key: Key,     // Key name
-    dynamo_contents: Vec<u8>, // Key value which we are interested to decrypt
-    dynamo_hmac: Vec<u8>,     // HMAC Digest
-    dynamo_digest: String,    // Digest type
-    dynamo_version: String,   // Version
+    dynamo_aes_key: Bytes,        // Key name
+    dynamo_hmac_key: Key,         // Key name
+    pub dynamo_contents: Vec<u8>, // Decrypted value
+    dynamo_hmac: Vec<u8>,         // HMAC Digest
+    dynamo_digest: String,        // Digest type
+    dynamo_version: String,       // Version
     dynamo_comment: Option<String>,
-    dynamo_name: String,
+    pub dynamo_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -181,11 +181,7 @@ impl CredStashClient {
         }
     }
 
-    pub fn list_secrets(
-        &self,
-        table: String,
-        digest_algorithm: Algorithm,
-    ) -> Result<Vec<CredstashKey>, CredStashClientError> {
+    pub fn list_secrets(&self, table: String) -> Result<Vec<CredstashKey>, CredStashClientError> {
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
         while (last_eval_key.is_some()) {
@@ -208,7 +204,7 @@ impl CredStashClient {
         }
         let res: Result<Vec<CredstashKey>, CredStashClientError> = items
             .into_iter()
-            .map(|item| self.attribute_to_attribute_item(item, digest_algorithm))
+            .map(|item| self.attribute_to_attribute_item(item))
             .into_iter()
             .collect();
         res
@@ -217,7 +213,6 @@ impl CredStashClient {
     fn attribute_to_attribute_item(
         &self,
         item: HashMap<String, AttributeValue>,
-        digest_algorithm: Algorithm,
     ) -> Result<CredstashKey, CredStashClientError> {
         let dynamo_name = item
             .get("name")
@@ -235,7 +230,7 @@ impl CredStashClient {
             .s
             .as_ref()
             .ok_or(CredStashClientError::AWSDynamoError(
-                "digest column value not present".to_string(),
+                "name column value not present".to_string(),
             ))?
             .to_owned();
         let version = dynamo_version
@@ -309,6 +304,7 @@ impl CredStashClient {
         let crypto_context = crypto::Crypto::new();
         let verified =
             crypto_context.verify_ciphertext_integrity(&hmac_key, &item_contents, &item_hmac);
+
         if (verified == false) {
             return Err(CredStashClientError::HMacMismatch);
         }
@@ -561,6 +557,20 @@ impl CredStashClient {
         Ok(())
     }
 
+    pub fn get_all_secrets(
+        &self,
+        table_name: String,
+    ) -> Result<Vec<DynamoResult>, CredStashClientError> {
+        // todo: Do actions via thread pool
+        let table = table_name.clone();
+        let keys = self.list_secrets(table)?;
+        let items: Vec<Result<DynamoResult, CredStashClientError>> = keys
+            .into_iter()
+            .map(|item| self.get_secret(table_name.clone(), item.name, ring::hmac::HMAC_SHA256))
+            .collect();
+        items.into_iter().collect()
+    }
+
     pub fn get_secret(
         &self,
         table: String,
@@ -641,6 +651,7 @@ impl CredStashClient {
             ))?;
 
         let decoded_key: Vec<u8> = decode(key)?;
+        // todo: remove digest_algorithm. Decrypt via the actual row
         let (hmac_key, aes_key) = self.decrypt_via_kms(digest_algorithm, decoded_key)?;
         let crypto_context = crypto::Crypto::new();
         let verified =
@@ -648,10 +659,11 @@ impl CredStashClient {
         if (verified == false) {
             return Err(CredStashClientError::HMacMismatch);
         }
+        let contents = CredStashClient::decrypt_secret(item_contents, aes_key.clone());
         Ok(DynamoResult {
             dynamo_aes_key: aes_key,
             dynamo_hmac_key: hmac_key,
-            dynamo_contents: item_contents,
+            dynamo_contents: contents,
             dynamo_hmac: item_hmac,
             dynamo_digest: dynamo_digest
                 .s
@@ -709,11 +721,8 @@ impl CredStashClient {
         Ok((hmac_ring_key, aes_key))
     }
 
-    pub fn decrypt_secret(row: DynamoResult) -> Vec<u8> {
+    pub fn decrypt_secret(contents: Vec<u8>, key: Bytes) -> Vec<u8> {
         let crypto_context = crypto::Crypto::new();
-        crypto_context.aes_decrypt_ctr3(
-            row.dynamo_contents,
-            row.dynamo_aes_key.into_iter().collect(),
-        )
+        crypto_context.aes_decrypt_ctr3(contents, key.into_iter().collect())
     }
 }

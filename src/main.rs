@@ -22,10 +22,17 @@ struct RuCredStashApp {
     action: Action,
 }
 
+fn render_secret(secret: Vec<u8>) -> String {
+    match str::from_utf8(&secret) {
+        Ok(v) => v.to_string(),
+        Err(_) => "".to_string(),
+    }
+}
+
 fn render_comment(comment: Option<String>) -> String {
     match comment {
         None => "".to_string(),
-        Some(com) => com,
+        Some(val) => val,
     }
 }
 
@@ -43,8 +50,7 @@ enum Action {
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
         Action::List => {
-            let result =
-                client.list_secrets("credential-store".to_string(), ring::hmac::HMAC_SHA256);
+            let result = client.list_secrets("credential-store".to_string());
             match result {
                 Err(err) => println!("Failure: {:?}", err),
                 Ok(val) => {
@@ -67,6 +73,34 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                         })
                         .collect();
                 }
+            }
+        }
+        Action::Keys => {
+            let result = client.list_secrets("credential-store".to_string());
+            match result {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(val) => {
+                    let d: Vec<()> = val
+                        .into_iter()
+                        .map(|item| println!("{}", item.name))
+                        .collect();
+                }
+            }
+        }
+        Action::GetAll => {
+            let result = client.get_all_secrets("credential-store".to_string());
+            match result {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(val) => val
+                    .into_iter()
+                    .map(|item| {
+                        println!(
+                            "fetched: {} val: {}",
+                            item.dynamo_name,
+                            render_secret(item.dynamo_contents)
+                        )
+                    })
+                    .collect(),
             }
         }
         _ => panic!("unimplemented"),
