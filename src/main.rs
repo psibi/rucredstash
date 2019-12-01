@@ -3,11 +3,13 @@ extern crate clap;
 
 use base64::decode;
 use clap::{App, Arg, SubCommand};
-use rucredstash::CredStashClient;
+use rucredstash::{CredStashClient, CredstashKey};
 use std::ffi::OsString;
 mod crypto;
 use ring;
+use std::clone::Clone;
 use std::str;
+use std::vec::Vec;
 
 #[derive(Debug, PartialEq)]
 struct RuCredStashApp {
@@ -30,17 +32,32 @@ enum Action {
     Setup,
 }
 
-fn handle_action(app: RuCredStashApp, client: CredStashClient) {
+fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
         Action::List => {
             let result =
                 client.list_secrets("credential-store".to_string(), ring::hmac::HMAC_SHA256);
             match result {
                 Err(err) => println!("Failure: {:?}", err),
-                Ok(val) => val
-                    .into_iter()
-                    .map(|item| println!("{0: <10}  -- version {1: <10}", item.name, item.version))
-                    .collect(),
+                Ok(val) => {
+                    let newval = val.clone();
+                    let max_name_len: Vec<usize> =
+                        newval.into_iter().map(|item| item.name.len()).collect();
+                    let max_len = max_name_len
+                        .iter()
+                        .fold(1, |acc, x| if (acc < *x) { *x } else { acc });
+                    let d: Vec<()> = val
+                        .into_iter()
+                        .map(|item| {
+                            println!(
+                                "{:width$} -- version {: <10}",
+                                item.name,
+                                item.version,
+                                width = max_len
+                            )
+                        })
+                        .collect();
+                }
             }
         }
         _ => panic!("unimplemented"),

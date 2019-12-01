@@ -103,7 +103,7 @@ pub struct DynamoResult {
     dynamo_name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CredstashKey {
     pub name: String,
     pub version: String,
