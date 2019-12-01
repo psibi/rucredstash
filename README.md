@@ -47,3 +47,6 @@ dog
 hello
 testkey
 testkey1
+~/g/rucredstash (master) $ aws-env credstash put hello1 world1 --comment "dummy comment"
+hello1 has been stored
+~

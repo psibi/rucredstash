@@ -30,6 +30,23 @@ enum Action {
     Setup,
 }
 
+fn handle_action(app: RuCredStashApp, client: CredStashClient) {
+    match app.action {
+        Action::List => {
+            let result =
+                client.list_secrets("credential-store".to_string(), ring::hmac::HMAC_SHA256);
+            match result {
+                Err(err) => println!("Failure: {:?}", err),
+                Ok(val) => val
+                    .into_iter()
+                    .map(|item| println!("{0: <10}  -- version {1: <10}", item.name, item.version))
+                    .collect(),
+            }
+        }
+        _ => panic!("unimplemented"),
+    }
+}
+
 impl RuCredStashApp {
     fn new() -> Self {
         Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
@@ -174,6 +191,7 @@ fn main() {
     let test = RuCredStashApp::new();
     println!("Hello, world {:?}", test);
     let client = CredStashClient::new();
+    handle_action(test, client);
 
     // Get version
     // let version = client
@@ -217,6 +235,8 @@ fn main() {
     //     .unwrap();
 
     // list secrets
-    let dynamo_row = client.list_secrets("credential-store".to_string()).unwrap();
-    println!("{:?}", dynamo_row);
+    // let dynamo_row = client
+    //     .list_secrets("credential-store".to_string(), ring::hmac::HMAC_SHA256)
+    //     .unwrap();
+    // println!("{:?}", dynamo_row);
 }
