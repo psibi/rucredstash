@@ -9,6 +9,7 @@ mod crypto;
 use ring;
 use std::clone::Clone;
 use std::str;
+use std::string::ToString;
 use std::vec::Vec;
 
 #[derive(Debug, PartialEq)]
@@ -19,6 +20,13 @@ struct RuCredStashApp {
     table_name: Option<String>,
     aws_arn: Option<String>,
     action: Action,
+}
+
+fn render_comment(comment: Option<String>) -> String {
+    match comment {
+        None => "".to_string(),
+        Some(com) => com,
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,9 +58,10 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                         .into_iter()
                         .map(|item| {
                             println!(
-                                "{:width$} -- version {: <10}",
+                                "{:width$} -- version {: <10} --comment {}",
                                 item.name,
                                 item.version,
+                                render_comment(item.comment),
                                 width = max_len
                             )
                         })

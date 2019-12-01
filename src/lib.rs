@@ -3,9 +3,6 @@ extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 
-use std::clone::Clone;
-use std::iter::FromIterator;
-
 use rusoto_core::region::Region;
 use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
@@ -18,8 +15,11 @@ use rusoto_kms::{
     DecryptError, GenerateDataKeyError, GenerateDataKeyRequest, GenerateDataKeyResponse, Kms,
     KmsClient,
 };
+use std::clone::Clone;
 use std::collections::HashMap;
+use std::iter::FromIterator;
 use std::result::Result;
+use std::string::String;
 use std::vec::Vec;
 mod crypto;
 use base64::{decode, encode, DecodeError};
@@ -107,6 +107,7 @@ pub struct DynamoResult {
 pub struct CredstashKey {
     pub name: String,
     pub version: String,
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -228,6 +229,8 @@ impl CredStashClient {
                 .ok_or(CredStashClientError::AWSDynamoError(
                     "version column is missing".to_string(),
                 ))?;
+        let dynamo_comment: Option<&AttributeValue> = item.get("comment");
+
         let name = dynamo_name
             .s
             .as_ref()
@@ -242,9 +245,16 @@ impl CredStashClient {
                 "version column value not present".to_string(),
             ))?
             .to_owned();
+        // todo: convert to use flatten once it is available in stable
+        let comment: Option<String> = match dynamo_comment.map(|item| item.s.as_ref()) {
+            None => None,
+            Some(None) => None,
+            Some(Some(c)) => Some(c.to_string()),
+        };
         Ok(CredstashKey {
             name: name,
             version: version,
+            comment: comment,
         })
     }
 
