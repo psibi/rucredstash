@@ -75,6 +75,15 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 }
             }
         }
+        Action::Setup => {
+            let result = client.create_db_table("test-db".to_string(), "fixme".to_string());
+            match result {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(val) => {
+                    println!("Creation initiated");
+                }
+            }
+        }
         Action::Keys => {
             let result = client.list_secrets("credential-store".to_string());
             match result {

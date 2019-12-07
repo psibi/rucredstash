@@ -36,6 +36,12 @@ Default digest algorithm: `SHA256`
 * Full version of delete algorithm (At least that's what I believe)
 * Full version of keys subcommand
 * Full version of list subcommand
+* Minimal version of getall subcommand
+* Minimal version of setup subcommand
+
+## Missing
+
+* putall
 
 ## Decrypt algorithm
 

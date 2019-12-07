@@ -3,12 +3,16 @@ extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 
+use core::convert::From;
 use rusoto_core::region::Region;
+use rusoto_core::RusotoError::*;
 use rusoto_core::{RusotoError, RusotoResult};
 use rusoto_dynamodb::{
-    AttributeValue, DeleteItemError, DeleteItemInput, DeleteItemOutput, DynamoDb, DynamoDbClient,
-    ListTablesError, ListTablesInput, ListTablesOutput, PutItemError, PutItemInput, QueryError,
-    QueryInput, QueryOutput, ScanError, ScanInput, ScanOutput,
+    AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, DeleteItemError,
+    DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput, DescribeTableOutput,
+    DynamoDb, DynamoDbClient, KeySchemaElement, ListTablesError, ListTablesInput, ListTablesOutput,
+    ProvisionedThroughput, PutItemError, PutItemInput, QueryError, QueryInput, QueryOutput,
+    ScanError, ScanInput, ScanOutput, TableDescription,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -122,6 +126,18 @@ pub enum CredStashClientError {
     CredstashDecodeFalure(DecodeError),
     CredstashHexFailure(FromHexError),
     HMacMismatch,
+}
+
+impl From<RusotoError<DescribeTableError>> for CredStashClientError {
+    fn from(error: RusotoError<DescribeTableError>) -> Self {
+        CredStashClientError::AWSDynamoError(error.to_string())
+    }
+}
+
+impl From<RusotoError<CreateTableError>> for CredStashClientError {
+    fn from(error: RusotoError<CreateTableError>) -> Self {
+        CredStashClientError::AWSDynamoError(error.to_string())
+    }
 }
 
 impl From<RusotoError<GenerateDataKeyError>> for CredStashClientError {
@@ -554,6 +570,58 @@ impl CredStashClient {
         put_item.item = nitem;
         self.dynamo_client.put_item(put_item).sync()?;
         // todo: next step: test put_secret now
+        Ok(())
+    }
+
+    pub fn create_db_table(
+        &self,
+        table_name: String,
+        tags: String,
+    ) -> Result<(), CredStashClientError> {
+        let mut query: DescribeTableInput = Default::default();
+        query.table_name = table_name.clone();
+        let table_result = self.dynamo_client.describe_table(query).sync();
+        match table_result {
+            Ok(value) => {
+                if value.table.is_some() {
+                    return Err(CredStashClientError::AWSDynamoError(
+                        "table already exists".to_string(),
+                    ));
+                }
+            }
+            Err(RusotoError::Service(DescribeTableError::ResourceNotFound(_))) => {}
+            Err(err) => {
+                return Err(CredStashClientError::AWSDynamoError(err.to_string()));
+            }
+        };
+        let mut create_query: CreateTableInput = Default::default();
+        create_query.table_name = table_name;
+
+        let mut name_attribute: KeySchemaElement = Default::default();
+        name_attribute.attribute_name = "name".to_string();
+        name_attribute.key_type = "HASH".to_string();
+        let mut version_attribute: KeySchemaElement = Default::default();
+        version_attribute.attribute_name = "version".to_string();
+        version_attribute.key_type = "RANGE".to_string();
+        create_query.key_schema = vec![name_attribute, version_attribute];
+
+        let mut name_definition: AttributeDefinition = Default::default();
+        name_definition.attribute_name = "name".to_string();
+        name_definition.attribute_type = "S".to_string();
+        let mut version_definition: AttributeDefinition = Default::default();
+        version_definition.attribute_name = "version".to_string();
+        version_definition.attribute_type = "S".to_string();
+        create_query.attribute_definitions = vec![name_definition, version_definition];
+
+        let mut throughput: ProvisionedThroughput = Default::default();
+        throughput.read_capacity_units = 1;
+        throughput.write_capacity_units = 1;
+        create_query.provisioned_throughput = Some(throughput);
+
+        // todo: add tags also to create_query
+        let result = self.dynamo_client.create_table(create_query).sync()?;
+
+        // todo: wait till tablestatus becomes active. see if you can do something with tokio
         Ok(())
     }
 
