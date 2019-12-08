@@ -1,13 +1,13 @@
-extern crate futures;
 extern crate base64;
+extern crate futures;
 extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 extern crate tokio_core;
 
-use tokio_core::reactor::Core;
 use core::convert::From;
 use futures::future::Future;
+use futures::future::IntoFuture;
 use rusoto_core::region::Region;
 use rusoto_core::RusotoError::*;
 use rusoto_core::{RusotoError, RusotoResult};
@@ -29,6 +29,7 @@ use std::iter::FromIterator;
 use std::result::Result;
 use std::string::String;
 use std::vec::Vec;
+use tokio_core::reactor::Core;
 mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
@@ -357,23 +358,29 @@ impl CredStashClient {
                 .to_owned(),
         })
     }
-    
-    fn test(&self) -> impl Future<Item=QueryOutput, Error=RusotoError<QueryError>> {
+
+    fn test(&self) -> impl Future<Item = QueryOutput, Error = RusotoError<QueryError>> {
         let mut query: QueryInput = Default::default();
 
         self.dynamo_client.query(query)
     }
 
-    fn test2(&self) -> impl Future<Item=QueryOutput, Error=CredStashClientError> {
+    fn test2(&self) -> impl Future<Item = QueryOutput, Error = CredStashClientError> {
         let mut query: QueryInput = Default::default();
 
-        self.dynamo_client.query(query).map_err(|err| From::from(err))
+        self.dynamo_client
+            .query(query)
+            .map_err(|err| From::from(err))
     }
 
-    fn test3(&self) -> impl Future<Item=QueryOutput, Error=CredStashClientError> {
+    fn test3(&self) -> impl Future<Item = Option<i64>, Error = CredStashClientError> {
         let mut query: QueryInput = Default::default();
 
-        self.dynamo_client.query(query).map_err(|err| From::from(err)).and_then(|query| query)
+        self.dynamo_client
+            .query(query)
+            .map_err(|err| From::from(err))
+            .and_then(|query| Ok(query.count))
+            .into_future()
     }
 
     pub fn get_highest_version(
