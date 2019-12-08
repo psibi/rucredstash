@@ -59,8 +59,10 @@ need to decrypt that first.
 
 ## Todo:
 
-* put command
 * encryption context for put/get
+* Next step: Implemented get_all_secrets. Write integration tests for
+  it. Integrate the cli handling.
+* Further: Slowly convert everything into a future based interface
 
 ## AWS Queries
 
