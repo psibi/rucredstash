@@ -1,9 +1,13 @@
+extern crate futures;
 extern crate base64;
 extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
+extern crate tokio_core;
 
+use tokio_core::reactor::Core;
 use core::convert::From;
+use futures::future::Future;
 use rusoto_core::region::Region;
 use rusoto_core::RusotoError::*;
 use rusoto_core::{RusotoError, RusotoResult};
@@ -352,6 +356,24 @@ impl CredStashClient {
                 ))?
                 .to_owned(),
         })
+    }
+    
+    fn test(&self) -> impl Future<Item=QueryOutput, Error=RusotoError<QueryError>> {
+        let mut query: QueryInput = Default::default();
+
+        self.dynamo_client.query(query)
+    }
+
+    fn test2(&self) -> impl Future<Item=QueryOutput, Error=CredStashClientError> {
+        let mut query: QueryInput = Default::default();
+
+        self.dynamo_client.query(query).map_err(|err| From::from(err))
+    }
+
+    fn test3(&self) -> impl Future<Item=QueryOutput, Error=CredStashClientError> {
+        let mut query: QueryInput = Default::default();
+
+        self.dynamo_client.query(query).map_err(|err| From::from(err)).and_then(|query| query)
     }
 
     pub fn get_highest_version(
