@@ -441,6 +441,55 @@ impl CredStashClient {
             .to_owned())
     }
 
+    // impl Future<Item = Vec<DeleteItemOutput>, Error = CredStashClientError>
+    //  Result<(), CredStashClientError>
+    pub fn delete_secret_future(&self, table_name: String, credential: String) -> Vec<impl Future<Item=DeleteItemOutput, Error=CredStashClientError>>{
+        let mut last_eval_key = Some(HashMap::new());
+        let mut items = vec![];
+        while (last_eval_key.is_some()) {
+
+            let mut query: QueryInput = Default::default();
+            let cond: String = "#n = :nameValue".to_string();
+            query.key_condition_expression = Some(cond);
+
+            let mut attr_names = HashMap::new();
+            attr_names.insert("#n".to_string(), "name".to_string());
+            query.expression_attribute_names = Some(attr_names);
+
+            query.projection_expression = Some("#n, version".to_string());
+
+            let mut strAttr: AttributeValue = AttributeValue::default();
+            strAttr.s = Some(credential.clone());
+
+            let mut attr_values = HashMap::new();
+            attr_values.insert(":nameValue".to_string(), strAttr);
+            query.expression_attribute_values = Some(attr_values);
+            query.table_name = table_name.clone();
+            if (last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty())) {
+                query.exclusive_start_key = last_eval_key.clone();
+            }
+            let result_items = self.dynamo_client.query(query).map_err(|err| From::from(err)).and_then(|query| {
+                // last_eval_key = query.last_evaluated_key; fixme
+                query.items.ok_or(CredStashClientError::AWSDynamoError("items value is empty".to_string())).map(|mut item| {
+                    items.append(&mut item)
+                })}
+            ).into_future();
+        }
+        let mut del_query: DeleteItemInput = Default::default();
+        del_query.table_name = table_name;
+        let result = items
+            .iter()
+            .map(|item| {
+                let mut delq = del_query.clone();
+                delq.key = item.clone();
+                let dom =
+                    self.dynamo_client.delete_item(delq).map_err(|err| From::from(err)).and_then(|delete_output| Ok(delete_output)).into_future();
+                dom
+            }).collect();
+        result
+        // result.into_iter().collect()
+    }
+
     pub fn delete_secret(
         &self,
         table_name: String,
