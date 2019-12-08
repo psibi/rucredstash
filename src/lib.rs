@@ -6,7 +6,10 @@ extern crate rusoto_dynamodb;
 extern crate tokio_core;
 
 use core::convert::From;
+use futures::future;
 use futures::future::Future;
+use futures::future::*;
+use futures::Stream;
 use futures::future::IntoFuture;
 use rusoto_core::region::Region;
 use rusoto_core::RusotoError::*;
@@ -36,6 +39,7 @@ use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use hex::FromHexError;
 use ring;
+use futures::stream;
 use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
@@ -439,9 +443,8 @@ impl CredStashClient {
                 "version column value not present".to_string(),
             ))?
             .to_owned())
-    }
-
-    pub fn delete_secret_future(&self, table_name: String, credential: String) -> Vec<impl Future<Item=DeleteItemOutput, Error=CredStashClientError>>{
+    }nno
+    pub fn delete_secret_future(&self, table_name: String, credential: String) -> impl Future<Item=Vec<DeleteItemOutput>, Error=CredStashClientError>{
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
         while (last_eval_key.is_some()) {
@@ -475,6 +478,17 @@ impl CredStashClient {
         }
         let mut del_query: DeleteItemInput = Default::default();
         del_query.table_name = table_name;
+        // stream::unfold(items.into_iter(), |val| {
+        //     match val.next() {
+        //         Some(v) => {
+        //             let mut delete_query = del_query.clone();
+        //             delete_query.key = v.clone();
+        //             Some(self.dynamo_client.delete_item(delete_query))
+        //         }
+        //         None => None,
+        //     }
+        // });
+        // Ok(())
         let result = items
             .iter()
             .map(|item| {
@@ -483,9 +497,16 @@ impl CredStashClient {
                 let dom =
                     self.dynamo_client.delete_item(delq).map_err(|err| From::from(err)).and_then(|delete_output| Ok(delete_output)).into_future();
                 dom
-            }).collect();
-        result
-        // result.into_iter().collect()
+            });
+        // stream::unfold(result.into_iter(), |val| {
+        //     match val.next() {
+        //         Some(v) => Some(v),
+        //         None => None
+
+        //     }
+        // })
+        let results: Vec<_> = result.into_iter().collect();
+        join_all(results)
     }
 
     pub fn delete_secret(
