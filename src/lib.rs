@@ -448,7 +448,6 @@ impl CredStashClient {
     pub fn delete_secret_future(&self, table_name: String, credential: String) -> impl Future<Item=Vec<DeleteItemOutput>, Error=CredStashClientError>{
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
-        println!("inside secret future");
         while (last_eval_key.is_some()) {
 
             let mut query: QueryInput = Default::default();
@@ -471,7 +470,6 @@ impl CredStashClient {
             if (last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty())) {
                 query.exclusive_start_key = last_eval_key.clone();
             }
-            println!("before query");
             let result = self.dynamo_client.query(query).sync();
             match result {
                 Ok(val) => match val.items {
@@ -488,22 +486,8 @@ impl CredStashClient {
             }
 
         }
-            println!("after query");
         let mut del_query: DeleteItemInput = Default::default();
         del_query.table_name = table_name;
-        // stream::unfold(items.into_iter(), |val| {
-        //     match val.next() {
-        //         Some(v) => {
-        //             let mut delete_query = del_query.clone();
-        //             delete_query.key = v.clone();
-        //             Some(self.dynamo_client.delete_item(delete_query))
-        //         }
-        //         None => None,
-        //     }
-        // });
-        // Ok(())
-            println!("before delete query");
-
         let result: Vec<_> = items
             .iter()
             .map(|item| {
@@ -513,14 +497,6 @@ impl CredStashClient {
                     self.dynamo_client.delete_item(delq).map_err(|err| From::from(err)).and_then(|delete_output| Ok(delete_output)).into_future();
                 dom
             }).collect();
-        // stream::unfold(result.into_iter(), |val| {
-        //     match val.next() {
-        //         Some(v) => Some(v),
-        //         None => None
-
-        //     }
-        // })
-            println!("before join_all");
         join_all(result)
     }
 
