@@ -630,19 +630,26 @@ impl CredStashClient {
         Ok(())
     }
 
-    // pub fn get_all_secrets(
-    //     &self,
-    //     table_name: String,
-    // ) -> Result<Vec<DynamoResult>, CredStashClientError> {
-    //     // todo: Do actions via thread pool
-    //     let table = table_name.clone();
-    //     let keys = self.list_secrets(table)?;
-    //     let items: Vec<Result<DynamoResult, CredStashClientError>> = keys
-    //         .into_iter()
-    //         .map(|item| self.get_secret(table_name.clone(), item.name, ring::hmac::HMAC_SHA256))
-    //         .collect();
-    //     items.into_iter().collect()
-    // }
+    pub fn get_all_secrets<'a>(
+        &'a self,
+        table_name: String,
+    ) -> impl Future<Item = Vec<DynamoResult>, Error = CredStashClientError> + 'a {
+        let table = table_name.clone();
+        let keys: Vec<CredstashKey> = match self.list_secrets(table) {
+            Ok(items) => items,
+            Err(_) => vec![],
+        };
+        let items: Vec<_> = keys
+            .into_iter()
+            .map(|item| {
+                self.get_secret(table_name.clone(), item.name, ring::hmac::HMAC_SHA256)
+                    .map_err(|err| From::from(err))
+                    .and_then(|result| Ok(result))
+                    .into_future()
+            })
+            .collect();
+        join_all(items)
+    }
 
     fn to_dynamo_result(
         &self,
@@ -771,7 +778,6 @@ impl CredStashClient {
             .query(query)
             .map_err(|err| From::from(err))
             .and_then(move |result| {
-                // Ok(result)
                 let res: Result<DynamoResult, CredStashClientError> =
                     self.to_dynamo_result(Ok(result.clone()), digest_algorithm);
                 res
