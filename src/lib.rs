@@ -13,7 +13,7 @@ use futures::future::*;
 use futures::Stream;
 use rusoto_core::region::Region;
 use rusoto_core::RusotoError::*;
-use rusoto_core::{RusotoError, RusotoResult};
+use rusoto_core::{RusotoError, RusotoFuture, RusotoResult};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, DeleteItemError,
     DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput, DescribeTableOutput,
@@ -644,31 +644,11 @@ impl CredStashClient {
         items.into_iter().collect()
     }
 
-    pub fn get_secret(
+    fn to_dynamo_result(
         &self,
-        table: String,
-        key: String,
+        query_output: Result<QueryOutput, RusotoError<QueryError>>,
         digest_algorithm: Algorithm,
     ) -> Result<DynamoResult, CredStashClientError> {
-        let mut query: QueryInput = Default::default();
-        query.scan_index_forward = Some(false);
-        query.limit = Some(1);
-        query.consistent_read = Some(true);
-        let cond: String = "#n = :nameValue".to_string();
-        query.key_condition_expression = Some(cond);
-
-        let mut attr_names = HashMap::new();
-        attr_names.insert("#n".to_string(), "name".to_string());
-        query.expression_attribute_names = Some(attr_names);
-
-        let mut strAttr: AttributeValue = AttributeValue::default();
-        strAttr.s = Some(key);
-
-        let mut attr_values = HashMap::new();
-        attr_values.insert(":nameValue".to_string(), strAttr);
-        query.expression_attribute_values = Some(attr_values);
-        query.table_name = table;
-        let query_output = self.dynamo_client.query(query).sync();
         let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
             Ok(val) => val.items.ok_or(CredStashClientError::AWSDynamoError(
                 "items column is missing".to_string(),
@@ -761,7 +741,34 @@ impl CredStashClient {
                 ))?
                 .to_owned(),
         })
-        // dynamo_name : todo if it works
+    }
+
+    pub fn get_secret(
+        &self,
+        table_name: String,
+        key: String,
+        digest_algorithm: Algorithm,
+    ) -> Result<DynamoResult, CredStashClientError> {
+        let mut query: QueryInput = Default::default();
+        query.scan_index_forward = Some(false);
+        query.limit = Some(1);
+        query.consistent_read = Some(true);
+        let cond: String = "#n = :nameValue".to_string();
+        query.key_condition_expression = Some(cond);
+
+        let mut attr_names = HashMap::new();
+        attr_names.insert("#n".to_string(), "name".to_string());
+        query.expression_attribute_names = Some(attr_names);
+
+        let mut str_attr: AttributeValue = AttributeValue::default();
+        str_attr.s = Some(key);
+
+        let mut attr_values = HashMap::new();
+        attr_values.insert(":nameValue".to_string(), str_attr);
+        query.expression_attribute_values = Some(attr_values);
+        query.table_name = table_name;
+        let result = self.dynamo_client.query(query).sync();
+        self.to_dynamo_result(result, digest_algorithm)
     }
 
     fn generate_key_via_kms(

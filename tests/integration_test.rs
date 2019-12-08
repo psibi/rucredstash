@@ -35,7 +35,6 @@ fn credstash_basic_workflow() {
     assert_eq!("world".to_string(), secret_utf8);
 
     // delete credential
-
     let delete_future = app.delete_secret(table_name, "hello".to_string());
     let res = core.run(delete_future);
     assert!(res.is_ok());
