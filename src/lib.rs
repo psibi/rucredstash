@@ -107,7 +107,7 @@ pub struct CredStashClient {
 // Probably rename it to CredstashItem ?
 #[derive(Debug)]
 pub struct DynamoResult {
-    dynamo_aes_key: Bytes,        // Key name
+    pub dynamo_aes_key: Bytes,    // Key name
     dynamo_hmac_key: Key,         // Key name
     pub dynamo_contents: Vec<u8>, // Decrypted value
     dynamo_hmac: Vec<u8>,         // HMAC Digest
@@ -445,7 +445,7 @@ impl CredStashClient {
             .to_owned())
     }
 
-    pub fn delete_secret_future(
+    pub fn delete_secret(
         &self,
         table_name: String,
         credential: String,
@@ -508,62 +508,12 @@ impl CredStashClient {
         join_all(result)
     }
 
-    pub fn delete_secret(
-        &self,
-        table_name: String,
-        credential: String,
-    ) -> Result<Vec<DeleteItemOutput>, CredStashClientError> {
-        let mut last_eval_key = Some(HashMap::new());
-        let mut items = vec![];
-        while (last_eval_key.is_some()) {
-            let mut query: QueryInput = Default::default();
-            let cond: String = "#n = :nameValue".to_string();
-            query.key_condition_expression = Some(cond);
-
-            let mut attr_names = HashMap::new();
-            attr_names.insert("#n".to_string(), "name".to_string());
-            query.expression_attribute_names = Some(attr_names);
-
-            query.projection_expression = Some("#n, version".to_string());
-
-            let mut strAttr: AttributeValue = AttributeValue::default();
-            strAttr.s = Some(credential.clone());
-
-            let mut attr_values = HashMap::new();
-            attr_values.insert(":nameValue".to_string(), strAttr);
-            query.expression_attribute_values = Some(attr_values);
-            query.table_name = table_name.clone();
-            if (last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty())) {
-                query.exclusive_start_key = last_eval_key;
-            }
-            let result = self.dynamo_client.query(query).sync()?;
-            let mut result_items = result.items.ok_or(CredStashClientError::AWSDynamoError(
-                "items value is empty".to_string(),
-            ))?;
-            items.append(&mut result_items);
-            last_eval_key = result.last_evaluated_key;
-        }
-        let mut del_query: DeleteItemInput = Default::default();
-        del_query.table_name = table_name;
-        let result: Vec<Result<DeleteItemOutput, CredStashClientError>> = items
-            .iter()
-            .map(|item| {
-                let mut delq = del_query.clone();
-                delq.key = item.clone();
-                let dom: Result<DeleteItemOutput, RusotoError<DeleteItemError>> =
-                    self.dynamo_client.delete_item(delq).sync();
-                dom.map_err(|err| From::from(err))
-            })
-            .collect();
-        result.into_iter().collect()
-    }
-
     pub fn put_secret(
         &self,
         table_name: String,
         credential: String, // Key part. (Or the name column in dynamodb)
-        version: String,
-        value: String, // This should be encrypted
+        value: String,      // This should be encrypted
+        version: Option<u64>,
         context: Option<String>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
@@ -575,7 +525,6 @@ impl CredStashClient {
             Some(val) => val,
         };
         let full_key = hmac_key.clone();
-        let full_key_en = encode(&full_key); // Encoding of full data key
         let aes_key = hmac_key.split_to(32);
         let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
         let crypto_context = crypto::Crypto::new();
@@ -601,7 +550,9 @@ impl CredStashClient {
         item_name.s = Some(credential);
         item.insert("name".to_string(), item_name);
         let mut item_version = AttributeValue::default();
-        item_version.s = Some(version);
+        item_version.s = version
+            .map_or(Some(1), |ver| Some(ver))
+            .map(|elem| pad_integer(elem));
         item.insert("version".to_string(), item_version);
         let mut nitem = comment.map_or(item.clone(), |com| {
             let mut item_comment = AttributeValue::default();

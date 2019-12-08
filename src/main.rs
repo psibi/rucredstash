@@ -4,7 +4,7 @@ extern crate tokio_core;
 
 use base64::decode;
 use clap::{App, Arg, SubCommand};
-use rucredstash::{CredStashClient, CredstashKey};
+use credstash::{CredStashClient, CredstashKey};
 use std::ffi::OsString;
 mod crypto;
 use ring;
@@ -14,6 +14,7 @@ use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
 
+// todo: change to CredstashApp
 #[derive(Debug, PartialEq)]
 struct RuCredStashApp {
     name: String,
@@ -78,7 +79,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
             }
         }
         Action::Delete(credential) => {
-            let result = client.delete_secret_future("credential-store".to_string(), credential);
+            let result = client.delete_secret("credential-store".to_string(), credential);
             let mut core = Core::new().unwrap();
             match core.run(result) {
                 Ok(_) => println!("Item deleted"),
