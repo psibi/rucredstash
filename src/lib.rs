@@ -441,8 +441,6 @@ impl CredStashClient {
             .to_owned())
     }
 
-    // impl Future<Item = Vec<DeleteItemOutput>, Error = CredStashClientError>
-    //  Result<(), CredStashClientError>
     pub fn delete_secret_future(&self, table_name: String, credential: String) -> Vec<impl Future<Item=DeleteItemOutput, Error=CredStashClientError>>{
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
@@ -469,7 +467,7 @@ impl CredStashClient {
                 query.exclusive_start_key = last_eval_key.clone();
             }
             let result_items = self.dynamo_client.query(query).map_err(|err| From::from(err)).and_then(|query| {
-                // last_eval_key = query.last_evaluated_key; fixme
+                last_eval_key = query.last_evaluated_key;
                 query.items.ok_or(CredStashClientError::AWSDynamoError("items value is empty".to_string())).map(|mut item| {
                     items.append(&mut item)
                 })}
