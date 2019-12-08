@@ -75,6 +75,15 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 }
             }
         }
+        Action::Delete(credential) => {
+            let result = client.delete_secret("credential-store".to_string(), credential);
+            match result {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(_) => {
+                    println!("Item deleted");
+                }
+            }
+        }
         Action::Setup => {
             let result = client.create_db_table("test-db".to_string(), "fixme".to_string());
             match result {
