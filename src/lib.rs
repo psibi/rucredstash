@@ -8,9 +8,9 @@ extern crate tokio_core;
 use core::convert::From;
 use futures::future;
 use futures::future::Future;
+use futures::future::IntoFuture;
 use futures::future::*;
 use futures::Stream;
-use futures::future::IntoFuture;
 use rusoto_core::region::Region;
 use rusoto_core::RusotoError::*;
 use rusoto_core::{RusotoError, RusotoResult};
@@ -37,9 +37,9 @@ use tokio_core::reactor::Core;
 mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
+use futures::stream;
 use hex::FromHexError;
 use ring;
-use futures::stream;
 use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
@@ -445,11 +445,14 @@ impl CredStashClient {
             .to_owned())
     }
 
-    pub fn delete_secret_future(&self, table_name: String, credential: String) -> impl Future<Item=Vec<DeleteItemOutput>, Error=CredStashClientError>{
+    pub fn delete_secret_future(
+        &self,
+        table_name: String,
+        credential: String,
+    ) -> impl Future<Item = Vec<DeleteItemOutput>, Error = CredStashClientError> {
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
         while (last_eval_key.is_some()) {
-
             let mut query: QueryInput = Default::default();
             let cond: String = "#n = :nameValue".to_string();
             query.key_condition_expression = Some(cond);
@@ -476,15 +479,15 @@ impl CredStashClient {
                     Some(mut result_items) => {
                         items.append(&mut result_items);
                         last_eval_key = val.last_evaluated_key;
-
-                    },
+                    }
                     None => {
-                     last_eval_key = None;
+                        last_eval_key = None;
                     }
                 },
-                Err(_) => {         last_eval_key = None;}
+                Err(_) => {
+                    last_eval_key = None;
+                }
             }
-
         }
         let mut del_query: DeleteItemInput = Default::default();
         del_query.table_name = table_name;
@@ -493,10 +496,15 @@ impl CredStashClient {
             .map(|item| {
                 let mut delq = del_query.clone();
                 delq.key = item.clone();
-                let dom =
-                    self.dynamo_client.delete_item(delq).map_err(|err| From::from(err)).and_then(|delete_output| Ok(delete_output)).into_future();
+                let dom = self
+                    .dynamo_client
+                    .delete_item(delq)
+                    .map_err(|err| From::from(err))
+                    .and_then(|delete_output| Ok(delete_output))
+                    .into_future();
                 dom
-            }).collect();
+            })
+            .collect();
         join_all(result)
     }
 
@@ -504,12 +512,10 @@ impl CredStashClient {
         &self,
         table_name: String,
         credential: String,
-    ) -> Result<Vec<DeleteItemOutput>, CredStashClientError>
-    {
+    ) -> Result<Vec<DeleteItemOutput>, CredStashClientError> {
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
         while (last_eval_key.is_some()) {
-
             let mut query: QueryInput = Default::default();
             let cond: String = "#n = :nameValue".to_string();
             query.key_condition_expression = Some(cond);
