@@ -448,6 +448,7 @@ impl CredStashClient {
     pub fn delete_secret_future(&self, table_name: String, credential: String) -> impl Future<Item=Vec<DeleteItemOutput>, Error=CredStashClientError>{
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
+        println!("inside secret future");
         while (last_eval_key.is_some()) {
 
             let mut query: QueryInput = Default::default();
@@ -470,13 +471,24 @@ impl CredStashClient {
             if (last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty())) {
                 query.exclusive_start_key = last_eval_key.clone();
             }
-            let result_items = self.dynamo_client.query(query).map_err(|err| From::from(err)).and_then(|query| {
-                last_eval_key = query.last_evaluated_key;
-                query.items.ok_or(CredStashClientError::AWSDynamoError("items value is empty".to_string())).map(|mut item| {
-                    items.append(&mut item)
-                })}
-            ).into_future();
+            println!("before query");
+            let result = self.dynamo_client.query(query).sync();
+            match result {
+                Ok(val) => match val.items {
+                    Some(mut result_items) => {
+                        items.append(&mut result_items);
+                        last_eval_key = val.last_evaluated_key;
+
+                    },
+                    None => {
+                     last_eval_key = None;
+                    }
+                },
+                Err(_) => {         last_eval_key = None;}
+            }
+
         }
+            println!("after query");
         let mut del_query: DeleteItemInput = Default::default();
         del_query.table_name = table_name;
         // stream::unfold(items.into_iter(), |val| {
@@ -490,7 +502,9 @@ impl CredStashClient {
         //     }
         // });
         // Ok(())
-        let result = items
+            println!("before delete query");
+
+        let result: Vec<_> = items
             .iter()
             .map(|item| {
                 let mut delq = del_query.clone();
@@ -498,7 +512,7 @@ impl CredStashClient {
                 let dom =
                     self.dynamo_client.delete_item(delq).map_err(|err| From::from(err)).and_then(|delete_output| Ok(delete_output)).into_future();
                 dom
-            });
+            }).collect();
         // stream::unfold(result.into_iter(), |val| {
         //     match val.next() {
         //         Some(v) => Some(v),
@@ -506,8 +520,8 @@ impl CredStashClient {
 
         //     }
         // })
-        let results: Vec<_> = result.into_iter().collect();
-        join_all(results)
+            println!("before join_all");
+        join_all(result)
     }
 
     pub fn delete_secret(
