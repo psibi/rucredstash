@@ -105,7 +105,7 @@ pub struct CredStashClient {
 }
 
 // Probably rename it to CredstashItem ?
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DynamoResult {
     pub dynamo_aes_key: Bytes,    // Key name
     dynamo_hmac_key: Key,         // Key name
@@ -630,19 +630,19 @@ impl CredStashClient {
         Ok(())
     }
 
-    pub fn get_all_secrets(
-        &self,
-        table_name: String,
-    ) -> Result<Vec<DynamoResult>, CredStashClientError> {
-        // todo: Do actions via thread pool
-        let table = table_name.clone();
-        let keys = self.list_secrets(table)?;
-        let items: Vec<Result<DynamoResult, CredStashClientError>> = keys
-            .into_iter()
-            .map(|item| self.get_secret(table_name.clone(), item.name, ring::hmac::HMAC_SHA256))
-            .collect();
-        items.into_iter().collect()
-    }
+    // pub fn get_all_secrets(
+    //     &self,
+    //     table_name: String,
+    // ) -> Result<Vec<DynamoResult>, CredStashClientError> {
+    //     // todo: Do actions via thread pool
+    //     let table = table_name.clone();
+    //     let keys = self.list_secrets(table)?;
+    //     let items: Vec<Result<DynamoResult, CredStashClientError>> = keys
+    //         .into_iter()
+    //         .map(|item| self.get_secret(table_name.clone(), item.name, ring::hmac::HMAC_SHA256))
+    //         .collect();
+    //     items.into_iter().collect()
+    // }
 
     fn to_dynamo_result(
         &self,
@@ -743,12 +743,12 @@ impl CredStashClient {
         })
     }
 
-    pub fn get_secret(
-        &self,
+    pub fn get_secret<'a>(
+        &'a self,
         table_name: String,
         key: String,
         digest_algorithm: Algorithm,
-    ) -> Result<DynamoResult, CredStashClientError> {
+    ) -> impl Future<Item = DynamoResult, Error = CredStashClientError> + 'a {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
@@ -767,8 +767,16 @@ impl CredStashClient {
         attr_values.insert(":nameValue".to_string(), str_attr);
         query.expression_attribute_values = Some(attr_values);
         query.table_name = table_name;
-        let result = self.dynamo_client.query(query).sync();
-        self.to_dynamo_result(result, digest_algorithm)
+        self.dynamo_client
+            .query(query)
+            .map_err(|err| From::from(err))
+            .and_then(move |result| {
+                // Ok(result)
+                let res: Result<DynamoResult, CredStashClientError> =
+                    self.to_dynamo_result(Ok(result.clone()), digest_algorithm);
+                res
+            })
+            .into_future()
     }
 
     fn generate_key_via_kms(

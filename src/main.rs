@@ -108,20 +108,20 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
             }
         }
         Action::GetAll => {
-            let result = client.get_all_secrets("credential-store".to_string());
-            match result {
-                Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(val) => val
-                    .into_iter()
-                    .map(|item| {
-                        println!(
-                            "fetched: {} val: {}",
-                            item.dynamo_name,
-                            render_secret(item.dynamo_contents)
-                        )
-                    })
-                    .collect(),
-            }
+            // let result = client.get_all_secrets("credential-store".to_string());
+            // match result {
+            //     Err(err) => eprintln!("Failure: {:?}", err),
+            //     Ok(val) => val
+            //         .into_iter()
+            //         .map(|item| {
+            //             println!(
+            //                 "fetched: {} val: {}",
+            //                 item.dynamo_name,
+            //                 render_secret(item.dynamo_contents)
+            //             )
+            //         })
+            //         .collect(),
+            // }
         }
         _ => panic!("unimplemented"),
     }
