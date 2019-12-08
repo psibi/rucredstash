@@ -443,7 +443,8 @@ impl CredStashClient {
                 "version column value not present".to_string(),
             ))?
             .to_owned())
-    }nno
+    }
+
     pub fn delete_secret_future(&self, table_name: String, credential: String) -> impl Future<Item=Vec<DeleteItemOutput>, Error=CredStashClientError>{
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
