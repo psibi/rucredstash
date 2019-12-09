@@ -64,6 +64,11 @@ need to decrypt that first.
   it. Integrate the cli handling.
 * Further: Slowly convert everything into a future based interface
 
+Name change:
+
+credential_name
+credential_value
+
 ## AWS Queries
 
 AWS Quering for getting latest version:
