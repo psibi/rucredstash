@@ -44,6 +44,33 @@ use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
 
+fn get_version(query_output: QueryOutput) -> Result<String, CredStashClientError> {
+    let dynamo_result = query_output
+        .items
+        .ok_or(CredStashClientError::AWSDynamoError(
+            "items column is missing".to_string(),
+        ))?;
+    let item: HashMap<String, AttributeValue> =
+        dynamo_result
+            .into_iter()
+            .nth(0)
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "items is Empty".to_string(),
+            ))?;
+    let dynamo_version: &AttributeValue =
+        item.get("version")
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "version column is missing".to_string(),
+            ))?;
+    Ok(dynamo_version
+        .s
+        .as_ref()
+        .ok_or(CredStashClientError::AWSDynamoError(
+            "version column value not present".to_string(),
+        ))?
+        .to_owned())
+}
+
 fn pad_integer(num: u64) -> String {
     let num_str = num.to_string();
     if (num_str.len() >= PAD_LEN) {
@@ -367,35 +394,11 @@ impl CredStashClient {
         })
     }
 
-    fn test(&self) -> impl Future<Item = QueryOutput, Error = RusotoError<QueryError>> {
-        let mut query: QueryInput = Default::default();
-
-        self.dynamo_client.query(query)
-    }
-
-    fn test2(&self) -> impl Future<Item = QueryOutput, Error = CredStashClientError> {
-        let mut query: QueryInput = Default::default();
-
-        self.dynamo_client
-            .query(query)
-            .map_err(|err| From::from(err))
-    }
-
-    fn test3(&self) -> impl Future<Item = Option<i64>, Error = CredStashClientError> {
-        let mut query: QueryInput = Default::default();
-
-        self.dynamo_client
-            .query(query)
-            .map_err(|err| From::from(err))
-            .and_then(|query| Ok(query.count))
-            .into_future()
-    }
-
     pub fn get_highest_version(
         &self,
         table: String,
         key: String,
-    ) -> Result<String, CredStashClientError> {
+    ) -> impl Future<Item = String, Error = CredStashClientError> {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
@@ -407,42 +410,20 @@ impl CredStashClient {
         attr_names.insert("#n".to_string(), "name".to_string());
         query.expression_attribute_names = Some(attr_names);
 
-        let mut strAttr: AttributeValue = AttributeValue::default();
-        strAttr.s = Some(key);
+        let mut str_attr: AttributeValue = AttributeValue::default();
+        str_attr.s = Some(key);
 
         let mut attr_values = HashMap::new();
-        attr_values.insert(":nameValue".to_string(), strAttr);
+        attr_values.insert(":nameValue".to_string(), str_attr);
         query.expression_attribute_values = Some(attr_values);
         query.table_name = table;
 
         query.projection_expression = Some("version".to_string());
-        let query_output = self.dynamo_client.query(query).sync();
-
-        let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
-            Ok(val) => val.items.ok_or(CredStashClientError::AWSDynamoError(
-                "items column is missing".to_string(),
-            ))?,
-            Err(err) => return Err(CredStashClientError::DynamoError(err)),
-        };
-        let item: HashMap<String, AttributeValue> =
-            dynamo_result
-                .into_iter()
-                .nth(0)
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "items is Empty".to_string(),
-                ))?;
-        let dynamo_version: &AttributeValue =
-            item.get("version")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "version column is missing".to_string(),
-                ))?;
-        Ok(dynamo_version
-            .s
-            .as_ref()
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "version column value not present".to_string(),
-            ))?
-            .to_owned())
+        self.dynamo_client
+            .query(query)
+            .map_err(|err| From::from(err))
+            .and_then(|result| get_version(result))
+            .into_future()
     }
 
     pub fn delete_secret(
