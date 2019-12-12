@@ -18,8 +18,8 @@ use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, DeleteItemError,
     DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput, DescribeTableOutput,
     DynamoDb, DynamoDbClient, KeySchemaElement, ListTablesError, ListTablesInput, ListTablesOutput,
-    ProvisionedThroughput, PutItemError, PutItemInput, QueryError, QueryInput, QueryOutput,
-    ScanError, ScanInput, ScanOutput, TableDescription,
+    ProvisionedThroughput, PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput,
+    QueryOutput, ScanError, ScanInput, ScanOutput, TableDescription,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -43,6 +43,71 @@ use ring;
 use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
+
+fn put_helper(
+    query_output: GenerateDataKeyResponse,
+    digest_algorithm: Algorithm,
+    table_name: String,
+    value: String,
+    credential: String,
+    version: Option<u64>,
+    comment: Option<String>,
+) -> Result<PutItemInput, CredStashClientError> {
+    let mut hmac_key: Bytes = match query_output.plaintext {
+        None => return Err(CredStashClientError::NoKeyFound),
+        Some(val) => val,
+    };
+    let full_key = hmac_key.clone();
+    let aes_key = hmac_key.split_to(32);
+    let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
+    let crypto_context = crypto::Crypto::new();
+    let aes_enc = crypto_context.aes_encrypt_ctr(value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
+    let hmac_en = sign(&hmac_ring_key, &aes_enc); // HMAC of encrypted text
+    let ciphertext_blob = query_output
+        .ciphertext_blob
+        .ok_or(CredStashClientError::AWSKMSError(
+            "ciphertext_blob is empty".to_string(),
+        ))?
+        .to_vec();
+    let base64_aes_enc = encode(&aes_enc); // Base64 of encrypted text
+    let base64_cipher_blob = encode(&ciphertext_blob); // Encoding of full key encrypted with master key
+    let hex_hmac = hex::encode(hmac_en);
+    let mut put_item: PutItemInput = Default::default();
+    put_item.table_name = table_name;
+    let mut attr_names = HashMap::new();
+    attr_names.insert("#n".to_string(), "name".to_string());
+    put_item.expression_attribute_names = Some(attr_names);
+    put_item.condition_expression = Some("attribute_not_exists(#n)".to_string());
+    let mut item = HashMap::new();
+    let mut item_name = AttributeValue::default();
+    item_name.s = Some(credential);
+    item.insert("name".to_string(), item_name);
+    let mut item_version = AttributeValue::default();
+    item_version.s = version
+        .map_or(Some(1), |ver| Some(ver))
+        .map(|elem| pad_integer(elem));
+    item.insert("version".to_string(), item_version);
+    let mut nitem = comment.map_or(item.clone(), |com| {
+        let mut item_comment = AttributeValue::default();
+        item_comment.s = Some(com);
+        item.insert("comment".to_string(), item_comment);
+        item
+    });
+    let mut item_key = AttributeValue::default();
+    item_key.s = Some(base64_cipher_blob);
+    nitem.insert("key".to_string(), item_key);
+    let mut item_contents = AttributeValue::default();
+    item_contents.s = Some(base64_aes_enc);
+    nitem.insert("contents".to_string(), item_contents);
+    let mut item_hmac = AttributeValue::default();
+    item_hmac.b = Some(Bytes::from(hex_hmac));
+    nitem.insert("hmac".to_string(), item_hmac);
+    let mut item_digest = AttributeValue::default();
+    item_digest.s = Some(get_algorithm(digest_algorithm));
+    nitem.insert("digest".to_string(), item_digest);
+    put_item.item = nitem;
+    Ok(put_item)
+}
 
 fn get_key(
     decrypt_output: DecryptResponse,
@@ -424,8 +489,8 @@ impl CredStashClient {
         join_all(result)
     }
 
-    pub fn put_secret(
-        &self,
+    pub fn put_secret<'a>(
+        &'a self,
         table_name: String,
         credential: String, // Key part. (Or the name column in dynamodb)
         value: String,      // This should be encrypted
@@ -433,65 +498,28 @@ impl CredStashClient {
         context: Option<String>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
-    ) -> Result<(), CredStashClientError> {
-        let query_output = self.generate_key_via_kms(64)?;
-        // todo: Refactor this code
-        let mut hmac_key: Bytes = match query_output.plaintext {
-            None => return Err(CredStashClientError::NoKeyFound),
-            Some(val) => val,
-        };
-        let full_key = hmac_key.clone();
-        let aes_key = hmac_key.split_to(32);
-        let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
-        let crypto_context = crypto::Crypto::new();
-        let aes_enc = crypto_context.aes_encrypt_ctr(value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
-        let hmac_en = sign(&hmac_ring_key, &aes_enc); // HMAC of encrypted text
-        let ciphertext_blob = query_output
-            .ciphertext_blob
-            .ok_or(CredStashClientError::AWSKMSError(
-                "ciphertext_blob is empty".to_string(),
-            ))?
-            .to_vec();
-        let base64_aes_enc = encode(&aes_enc); // Base64 of encrypted text
-        let base64_cipher_blob = encode(&ciphertext_blob); // Encoding of full key encrypted with master key
-        let hex_hmac = hex::encode(hmac_en);
-        let mut put_item: PutItemInput = Default::default();
-        put_item.table_name = table_name;
-        let mut attr_names = HashMap::new();
-        attr_names.insert("#n".to_string(), "name".to_string());
-        put_item.expression_attribute_names = Some(attr_names);
-        put_item.condition_expression = Some("attribute_not_exists(#n)".to_string());
-        let mut item = HashMap::new();
-        let mut item_name = AttributeValue::default();
-        item_name.s = Some(credential);
-        item.insert("name".to_string(), item_name);
-        let mut item_version = AttributeValue::default();
-        item_version.s = version
-            .map_or(Some(1), |ver| Some(ver))
-            .map(|elem| pad_integer(elem));
-        item.insert("version".to_string(), item_version);
-        let mut nitem = comment.map_or(item.clone(), |com| {
-            let mut item_comment = AttributeValue::default();
-            item_comment.s = Some(com);
-            item.insert("comment".to_string(), item_comment);
-            item
-        });
-        let mut item_key = AttributeValue::default();
-        item_key.s = Some(base64_cipher_blob);
-        nitem.insert("key".to_string(), item_key);
-        let mut item_contents = AttributeValue::default();
-        item_contents.s = Some(base64_aes_enc);
-        nitem.insert("contents".to_string(), item_contents);
-        let mut item_hmac = AttributeValue::default();
-        item_hmac.b = Some(Bytes::from(hex_hmac));
-        nitem.insert("hmac".to_string(), item_hmac);
-        let mut item_digest = AttributeValue::default();
-        item_digest.s = Some(get_algorithm(digest_algorithm));
-        nitem.insert("digest".to_string(), item_digest);
-        put_item.item = nitem;
-        self.dynamo_client.put_item(put_item).sync()?;
-        // todo: next step: test put_secret now
-        Ok(())
+    ) -> impl Future<Item = PutItemOutput, Error = CredStashClientError> + 'a {
+        self.generate_key_via_kms(64)
+            .map_err(|err| From::from(err))
+            .and_then(move |result| {
+                future::result(put_helper(
+                    result,
+                    digest_algorithm,
+                    table_name,
+                    value,
+                    credential,
+                    version,
+                    comment,
+                ))
+                .map_err(|err| From::from(err))
+                .and_then(|put_item| {
+                    self.dynamo_client
+                        .put_item(put_item)
+                        .map_err(|err| From::from(err))
+                        .and_then(|result| future::result(Ok(result)))
+                        .into_future()
+                })
+            })
     }
 
     pub fn create_db_table(
