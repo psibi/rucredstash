@@ -23,8 +23,8 @@ use rusoto_dynamodb::{
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
-    DecryptError, GenerateDataKeyError, GenerateDataKeyRequest, GenerateDataKeyResponse, Kms,
-    KmsClient,
+    DecryptError, DecryptResponse, GenerateDataKeyError, GenerateDataKeyRequest,
+    GenerateDataKeyResponse, Kms, KmsClient,
 };
 use std::clone::Clone;
 use std::collections::HashMap;
@@ -43,6 +43,20 @@ use ring;
 use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
+
+fn get_key(
+    decrypt_output: DecryptResponse,
+    digest_algorithm: Algorithm,
+) -> Result<(Key, Bytes), CredStashClientError> {
+    let mut hmac_key: Bytes = match decrypt_output.plaintext {
+        None => return Err(CredStashClientError::NoKeyFound),
+        Some(val) => val,
+    };
+    let aes_key: Bytes = hmac_key.split_to(32);
+    let hmac_ring_key: Key = Key::new(digest_algorithm, hmac_key.as_ref());
+    let result: (Key, Bytes) = (hmac_ring_key, aes_key);
+    Ok(result)
+}
 
 fn get_version(query_output: QueryOutput) -> Result<String, CredStashClientError> {
     let dynamo_result = query_output
@@ -219,6 +233,12 @@ impl From<RusotoError<ScanError>> for CredStashClientError {
     }
 }
 
+impl From<RusotoError<DecryptError>> for CredStashClientError {
+    fn from(error: RusotoError<DecryptError>) -> Self {
+        CredStashClientError::AWSKMSError(error.to_string())
+    }
+}
+
 impl CredStashClient {
     pub fn new() -> Self {
         Self::new_from()
@@ -306,91 +326,6 @@ impl CredStashClient {
             name: name,
             version: version,
             comment: comment,
-        })
-    }
-
-    fn attribute_to_credstash_item(
-        &self,
-        item: HashMap<String, AttributeValue>,
-        digest_algorithm: Algorithm,
-    ) -> Result<DynamoResult, CredStashClientError> {
-        let dynamo_key: &AttributeValue = item.get("key").ok_or(
-            CredStashClientError::AWSDynamoError("key column is missing".to_string()),
-        )?;
-        let dynamo_contents: &AttributeValue =
-            item.get("contents")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "contents column is missing".to_string(),
-                ))?;
-        let dynamo_hmac: &AttributeValue =
-            item.get("hmac")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "hmac column is missing".to_string(),
-                ))?;
-        let dynamo_version: &AttributeValue =
-            item.get("version")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "version column is missing".to_string(),
-                ))?;
-        let dynamo_digest: &AttributeValue =
-            item.get("digest")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "digest column is missing".to_string(),
-                ))?;
-        let key: &String = dynamo_key
-            .s
-            .as_ref()
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "key column value not present".to_string(),
-            ))?;
-        let item_contents = decode(dynamo_contents.s.as_ref().ok_or(
-            CredStashClientError::AWSDynamoError("contents column value not present".to_string()),
-        )?)?;
-        let item_hmac = hex::decode(dynamo_hmac.b.as_ref().ok_or(
-            CredStashClientError::AWSDynamoError("hmac column value not present".to_string()),
-        )?)?;
-        let dynamo_name = item
-            .get("name")
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "name column is missing".to_string(),
-            ))?;
-
-        let decoded_key: Vec<u8> = decode(key)?;
-        let (hmac_key, aes_key) = self.decrypt_via_kms(digest_algorithm, decoded_key)?;
-        let crypto_context = crypto::Crypto::new();
-        let verified =
-            crypto_context.verify_ciphertext_integrity(&hmac_key, &item_contents, &item_hmac);
-
-        if (verified == false) {
-            return Err(CredStashClientError::HMacMismatch);
-        }
-        Ok(DynamoResult {
-            dynamo_aes_key: aes_key,
-            dynamo_hmac_key: hmac_key,
-            dynamo_contents: item_contents,
-            dynamo_hmac: item_hmac,
-            dynamo_digest: dynamo_digest
-                .s
-                .as_ref()
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "digest column value not present".to_string(),
-                ))?
-                .to_owned(),
-            dynamo_version: dynamo_version
-                .s
-                .as_ref()
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "version column value not present".to_string(),
-                ))?
-                .to_owned(),
-            dynamo_comment: None,
-            dynamo_name: dynamo_name
-                .s
-                .as_ref()
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "digest column value not present".to_string(),
-                ))?
-                .to_owned(),
         })
     }
 
@@ -769,33 +704,28 @@ impl CredStashClient {
     fn generate_key_via_kms(
         &self,
         number_of_bytes: i64,
-    ) -> Result<GenerateDataKeyResponse, RusotoError<GenerateDataKeyError>> {
+    ) -> impl Future<Item = GenerateDataKeyResponse, Error = RusotoError<GenerateDataKeyError>>
+    {
         let mut query: GenerateDataKeyRequest = Default::default();
         query.key_id = "alias/credstash".to_string();
         query.number_of_bytes = Some(number_of_bytes);
-        self.kms_client.generate_data_key(query).sync()
+        self.kms_client.generate_data_key(query)
     }
 
     fn decrypt_via_kms(
         &self,
         digest_algorithm: Algorithm,
         cipher: Vec<u8>,
-    ) -> Result<(Key, Bytes), CredStashClientError> {
+    ) -> impl Future<Item = (Key, Bytes), Error = CredStashClientError> {
         let mut query: DecryptRequest = Default::default();
         query.ciphertext_blob = Bytes::from(cipher);
-        let query_output = match self.kms_client.decrypt(query).sync() {
-            Ok(output) => output,
-            Err(err) => return Err(CredStashClientError::KMSError(err)),
-        };
-        let mut hmac_key: Bytes = match query_output.plaintext {
-            None => return Err(CredStashClientError::NoKeyFound),
-            Some(val) => val,
-        };
-        let aes_key = hmac_key.split_to(32);
-        let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
-        Ok((hmac_ring_key, aes_key))
+        self.kms_client
+            .decrypt(query)
+            .map_err(|err| From::from(err))
+            .and_then(|result| get_key(result, digest_algorithm))
     }
 
+    // todo: probably move to crypto context
     pub fn decrypt_secret(contents: Vec<u8>, key: Bytes) -> Vec<u8> {
         let crypto_context = crypto::Crypto::new();
         crypto_context.aes_decrypt_ctr3(contents, key.into_iter().collect())
