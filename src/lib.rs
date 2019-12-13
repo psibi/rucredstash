@@ -600,12 +600,11 @@ impl CredStashClient {
         query_output: Result<QueryOutput, RusotoError<QueryError>>,
         digest_algorithm: Algorithm,
     ) -> Result<DynamoResult, CredStashClientError> {
-        let dynamo_result: Vec<HashMap<String, AttributeValue>> = match query_output {
-            Ok(val) => val.items.ok_or(CredStashClientError::AWSDynamoError(
+        let dynamo_result = query_output?
+            .items
+            .ok_or(CredStashClientError::AWSDynamoError(
                 "items column is missing".to_string(),
-            ))?,
-            Err(err) => return Err(CredStashClientError::DynamoError(err)),
-        };
+            ))?;
         let item: HashMap<String, AttributeValue> =
             dynamo_result
                 .into_iter()
