@@ -39,3 +39,6 @@ fn credstash_basic_workflow() {
     let res = core.run(delete_future);
     assert!(res.is_ok());
 }
+
+#[test]
+fn credstash_get_all() {}
