@@ -5,22 +5,24 @@ extern crate rusoto_core;
 extern crate rusoto_dynamodb;
 extern crate tokio_core;
 
+use base64::{decode, encode, DecodeError};
+use bytes::Bytes;
 use core::convert::From;
+mod crypto;
 use futures::future;
 use futures::future::Future;
 use futures::future::IntoFuture;
 use futures::future::*;
-use futures::Stream;
+use hex::FromHexError;
+use ring;
+use ring::hmac::{sign, Algorithm, Key};
 use rusoto_core::region::Region;
-use rusoto_core::RusotoError::*;
-use rusoto_core::{RusotoError, RusotoFuture, RusotoResult};
+use rusoto_core::RusotoError;
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
     DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
-    DescribeTableOutput, DynamoDb, DynamoDbClient, KeySchemaElement, ListTablesError,
-    ListTablesInput, ListTablesOutput, ProvisionedThroughput, PutItemError, PutItemInput,
+    DynamoDb, DynamoDbClient, KeySchemaElement, ProvisionedThroughput, PutItemError, PutItemInput,
     PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError, ScanInput, ScanOutput,
-    TableDescription,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -29,19 +31,10 @@ use rusoto_kms::{
 };
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use std::iter::Iterator;
 use std::result::Result;
 use std::string::String;
 use std::vec::Vec;
-use tokio_core::reactor::Core;
-mod crypto;
-use base64::{decode, encode, DecodeError};
-use bytes::Bytes;
-use futures::stream;
-use hex::FromHexError;
-use ring;
-use ring::hmac::{sign, Algorithm, Key};
 
 const PAD_LEN: usize = 19;
 
@@ -58,7 +51,6 @@ fn put_helper(
         None => return Err(CredStashClientError::NoKeyFound),
         Some(val) => val,
     };
-    let full_key = hmac_key.clone();
     let aes_key = hmac_key.split_to(32);
     let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
     let crypto_context = crypto::Crypto::new();
@@ -153,7 +145,7 @@ fn get_version(query_output: QueryOutput) -> Result<String, CredStashClientError
 
 fn pad_integer(num: u64) -> String {
     let num_str = num.to_string();
-    if (num_str.len() >= PAD_LEN) {
+    if num_str.len() >= PAD_LEN {
         return num_str;
     } else {
         let remaining = PAD_LEN - num_str.len();
@@ -164,26 +156,17 @@ fn pad_integer(num: u64) -> String {
 }
 
 fn get_algorithm(algorithm: Algorithm) -> String {
-    if (algorithm == ring::hmac::HMAC_SHA384) {
+    if algorithm == ring::hmac::HMAC_SHA384 {
         return "SHA384".to_string();
     }
-    if (algorithm == ring::hmac::HMAC_SHA256) {
+    if algorithm == ring::hmac::HMAC_SHA256 {
         return "SHA256".to_string();
     }
-    if (algorithm == ring::hmac::HMAC_SHA512) {
+    if algorithm == ring::hmac::HMAC_SHA512 {
         return "SHA512".to_string();
     } else {
-        return "SHA256".to_string();
+        return "SHA1".to_string();
     }
-    // todo: handle everything
-    // let algo = match algorithm {
-    //     HMAC_SHA384 => "SHA384".to_string(),
-    //     HMAC_SHA256 => "SHA256".to_string(),
-    //     HMAC_SHA512 => "SHA512".to_string(),
-    //     HMAC_SHA1_FOR_LEGACY_USE_ONLY => "SHA".to_string(),
-    //     _ => panic!("fix me"),
-    // };
-    // algo
 }
 
 #[test]
@@ -323,7 +306,7 @@ impl CredStashClient {
     pub fn list_secrets(&self, table: String) -> Result<Vec<CredstashKey>, CredStashClientError> {
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
-        while (last_eval_key.is_some()) {
+        while last_eval_key.is_some() {
             let mut scan_query: ScanInput = Default::default();
 
             scan_query.projection_expression = Some("#n, version, #c".to_string());
@@ -333,7 +316,7 @@ impl CredStashClient {
             attr_names.insert("#c".to_string(), "comment".to_string());
             scan_query.expression_attribute_names = Some(attr_names);
             scan_query.table_name = table.clone();
-            if (last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty())) {
+            if last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
                 scan_query.exclusive_start_key = last_eval_key;
             }
 
@@ -434,7 +417,7 @@ impl CredStashClient {
     ) -> impl Future<Item = Vec<DeleteItemOutput>, Error = CredStashClientError> {
         let mut last_eval_key = Some(HashMap::new());
         let mut items = vec![];
-        while (last_eval_key.is_some()) {
+        while last_eval_key.is_some() {
             let mut query: QueryInput = Default::default();
             let cond: String = "#n = :nameValue".to_string();
             query.key_condition_expression = Some(cond);
@@ -445,14 +428,14 @@ impl CredStashClient {
 
             query.projection_expression = Some("#n, version".to_string());
 
-            let mut strAttr: AttributeValue = AttributeValue::default();
-            strAttr.s = Some(credential.clone());
+            let mut str_attr: AttributeValue = AttributeValue::default();
+            str_attr.s = Some(credential.clone());
 
             let mut attr_values = HashMap::new();
-            attr_values.insert(":nameValue".to_string(), strAttr);
+            attr_values.insert(":nameValue".to_string(), str_attr);
             query.expression_attribute_values = Some(attr_values);
             query.table_name = table_name.clone();
-            if (last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty())) {
+            if last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
                 query.exclusive_start_key = last_eval_key.clone();
             }
             let result = self.dynamo_client.query(query).sync();
@@ -493,22 +476,22 @@ impl CredStashClient {
     pub fn put_secret<'a>(
         &'a self,
         table_name: String,
-        credential: String, // Key part. (Or the name column in dynamodb)
-        value: String,      // This should be encrypted
+        credential_name: String,
+        credential_value: String,
         version: Option<u64>,
-        context: Option<String>,
+        context: Option<(String, String)>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
     ) -> impl Future<Item = PutItemOutput, Error = CredStashClientError> + 'a {
-        self.generate_key_via_kms(64)
+        self.generate_key_via_kms(64, context)
             .map_err(|err| From::from(err))
             .and_then(move |result| {
                 future::result(put_helper(
                     result,
                     digest_algorithm,
                     table_name,
-                    value,
-                    credential,
+                    credential_value,
+                    credential_name,
                     version,
                     comment,
                 ))
@@ -578,7 +561,7 @@ impl CredStashClient {
         // todo: wait till tablestatus becomes active. see if you can do something with tokio
         table_result
             .map_err(|err| From::from(err))
-            .and_then(move |tup| {
+            .and_then(move |_result| {
                 self.dynamo_client
                     .create_table(create_query)
                     .map_err(|err| From::from(err))
@@ -709,7 +692,7 @@ impl CredStashClient {
                             &item_contents,
                             &item_hmac,
                         );
-                        if (verified == false) {
+                        if verified == false {
                             return Err(CredStashClientError::HMacMismatch);
                         }
                         let contents =
@@ -779,11 +762,17 @@ impl CredStashClient {
     fn generate_key_via_kms(
         &self,
         number_of_bytes: i64,
+        encryption_context: Option<(String, String)>,
     ) -> impl Future<Item = GenerateDataKeyResponse, Error = RusotoError<GenerateDataKeyError>>
     {
         let mut query: GenerateDataKeyRequest = Default::default();
         query.key_id = "alias/credstash".to_string();
         query.number_of_bytes = Some(number_of_bytes);
+        query.encryption_context = encryption_context.map(|(context_key, context_value)| {
+            let mut hash_map = HashMap::new();
+            hash_map.insert(context_key, context_value);
+            hash_map
+        });
         self.kms_client.generate_data_key(query)
     }
 

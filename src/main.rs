@@ -2,7 +2,6 @@ extern crate base64;
 extern crate clap;
 extern crate tokio_core;
 
-use base64::decode;
 use clap::{App, Arg, SubCommand};
 use credstash::{CredStashClient, CredstashKey};
 use std::ffi::OsString;
@@ -46,12 +45,28 @@ enum Action {
     GetAll,
     Keys,
     List,
-    Put(String, String, Option<String>),
+    Put(String, String, Option<(String, String)>),
     Setup,
 }
 
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
+        Action::Put(credential_name, credential_value, tags) => {
+            let result = client.put_secret(
+                "credential-store".to_string(),
+                credential_name,
+                credential_value,
+                None,
+                None,
+                None,
+                ring::hmac::HMAC_SHA256,
+            );
+            let mut core = Core::new().unwrap();
+            match core.run(result) {
+                Ok(_) => println!("Item putten successfully"),
+                Err(err) => eprintln!("Failure: {:?}", err),
+            }
+        }
         Action::List => {
             let result = client.list_secrets("credential-store".to_string());
             match result {
@@ -62,9 +77,8 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                         newval.into_iter().map(|item| item.name.len()).collect();
                     let max_len = max_name_len
                         .iter()
-                        .fold(1, |acc, x| if (acc < *x) { *x } else { acc });
-                    let d: Vec<()> = val
-                        .into_iter()
+                        .fold(1, |acc, x| if acc < *x { *x } else { acc });
+                    val.into_iter()
                         .map(|item| {
                             println!(
                                 "{:width$} -- version {: <10} --comment {}",
@@ -74,7 +88,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                                 width = max_len
                             )
                         })
-                        .collect();
+                        .collect::<Vec<()>>();
                 }
             }
         }
@@ -246,8 +260,11 @@ impl RuCredStashApp {
             ("put", Some(put_matches)) => {
                 let credential: String = put_matches.value_of("credential").unwrap().to_string();
                 let value: String = put_matches.value_of("value").unwrap().to_string();
-                let context = put_matches.value_of("context").map(|e| e.to_string());
-                Action::Put(credential, value, context)
+                let context: Option<String> =
+                    put_matches.value_of("context").map(|e| e.to_string());
+                let encryption_context: Option<(String, String)> =
+                    context.map_or(None, |e| split_context_to_tuple(e));
+                Action::Put(credential, value, encryption_context)
             }
             ("delete", Some(del_matches)) => {
                 let credential: String = del_matches.value_of("credential").unwrap().to_string();
@@ -265,6 +282,22 @@ impl RuCredStashApp {
             action: action_value,
         })
         // panic!("undefined");
+    }
+}
+
+fn split_context_to_tuple(encryption_context: String) -> Option<(String, String)> {
+    let context: Vec<&str> = encryption_context.split('=').collect();
+    match context.len() {
+        0 => None,
+        1 => panic!(
+            "error: argument context: {} is not the form of key=value",
+            encryption_context
+        ),
+        2 => Some((context[0].to_string(), context[1].to_string())),
+        _ => panic!(
+            "error: argument context: {} is not the form of key=value",
+            encryption_context
+        ),
     }
 }
 
