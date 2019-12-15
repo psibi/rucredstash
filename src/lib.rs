@@ -15,11 +15,12 @@ use rusoto_core::region::Region;
 use rusoto_core::RusotoError::*;
 use rusoto_core::{RusotoError, RusotoFuture, RusotoResult};
 use rusoto_dynamodb::{
-    AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, DeleteItemError,
-    DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput, DescribeTableOutput,
-    DynamoDb, DynamoDbClient, KeySchemaElement, ListTablesError, ListTablesInput, ListTablesOutput,
-    ProvisionedThroughput, PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput,
-    QueryOutput, ScanError, ScanInput, ScanOutput, TableDescription,
+    AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
+    DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
+    DescribeTableOutput, DynamoDb, DynamoDbClient, KeySchemaElement, ListTablesError,
+    ListTablesInput, ListTablesOutput, ProvisionedThroughput, PutItemError, PutItemInput,
+    PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError, ScanInput, ScanOutput,
+    TableDescription,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -522,27 +523,28 @@ impl CredStashClient {
             })
     }
 
-    pub fn create_db_table(
-        &self,
+    pub fn create_db_table<'a>(
+        &'a self,
         table_name: String,
         tags: String,
-    ) -> Result<(), CredStashClientError> {
+    ) -> impl Future<Item = CreateTableOutput, Error = CredStashClientError> + 'a {
         let mut query: DescribeTableInput = Default::default();
         query.table_name = table_name.clone();
         let table_result = self.dynamo_client.describe_table(query).sync();
-        match table_result {
+        let table_status: Result<(), CredStashClientError> = match table_result {
             Ok(value) => {
                 if value.table.is_some() {
-                    return Err(CredStashClientError::AWSDynamoError(
+                    Err(CredStashClientError::AWSDynamoError(
                         "table already exists".to_string(),
-                    ));
+                    ))
+                } else {
+                    Ok(())
                 }
             }
-            Err(RusotoError::Service(DescribeTableError::ResourceNotFound(_))) => {}
-            Err(err) => {
-                return Err(CredStashClientError::AWSDynamoError(err.to_string()));
-            }
+            Err(RusotoError::Service(DescribeTableError::ResourceNotFound(_))) => Ok(()),
+            Err(err) => Err(CredStashClientError::AWSDynamoError(err.to_string())),
         };
+
         let mut create_query: CreateTableInput = Default::default();
         create_query.table_name = table_name;
 
@@ -568,10 +570,16 @@ impl CredStashClient {
         create_query.provisioned_throughput = Some(throughput);
 
         // todo: add tags also to create_query
-        let result = self.dynamo_client.create_table(create_query).sync()?;
-
         // todo: wait till tablestatus becomes active. see if you can do something with tokio
-        Ok(())
+        future::result(table_status)
+            .map_err(|err| From::from(err))
+            .and_then(move |tup| {
+                self.dynamo_client
+                    .create_table(create_query)
+                    .map_err(|err| From::from(err))
+                    .and_then(|result| Ok(result))
+            })
+            .into_future()
     }
 
     pub fn get_all_secrets<'a>(
