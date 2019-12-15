@@ -530,20 +530,25 @@ impl CredStashClient {
     ) -> impl Future<Item = CreateTableOutput, Error = CredStashClientError> + 'a {
         let mut query: DescribeTableInput = Default::default();
         query.table_name = table_name.clone();
-        let table_result = self.dynamo_client.describe_table(query).sync();
-        let table_status: Result<(), CredStashClientError> = match table_result {
-            Ok(value) => {
-                if value.table.is_some() {
-                    Err(CredStashClientError::AWSDynamoError(
-                        "table already exists".to_string(),
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            Err(RusotoError::Service(DescribeTableError::ResourceNotFound(_))) => Ok(()),
-            Err(err) => Err(CredStashClientError::AWSDynamoError(err.to_string())),
-        };
+        let table_result = self
+            .dynamo_client
+            .describe_table(query)
+            .then(|table_result| {
+                let table_status: Result<(), CredStashClientError> = match table_result {
+                    Ok(value) => {
+                        if value.table.is_some() {
+                            Err(CredStashClientError::AWSDynamoError(
+                                "table already exists".to_string(),
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    Err(RusotoError::Service(DescribeTableError::ResourceNotFound(_))) => Ok(()),
+                    Err(err) => Err(CredStashClientError::AWSDynamoError(err.to_string())),
+                };
+                future::result(table_status)
+            });
 
         let mut create_query: CreateTableInput = Default::default();
         create_query.table_name = table_name;
@@ -571,7 +576,7 @@ impl CredStashClient {
 
         // todo: add tags also to create_query
         // todo: wait till tablestatus becomes active. see if you can do something with tokio
-        future::result(table_status)
+        table_result
             .map_err(|err| From::from(err))
             .and_then(move |tup| {
                 self.dynamo_client
@@ -579,7 +584,6 @@ impl CredStashClient {
                     .map_err(|err| From::from(err))
                     .and_then(|result| Ok(result))
             })
-            .into_future()
     }
 
     pub fn get_all_secrets<'a>(
