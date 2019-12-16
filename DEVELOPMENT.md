@@ -60,8 +60,7 @@ need to decrypt that first.
 ## Todo:
 
 * encryption context for put/get
-* Next step: Implemented get_all_secrets. Write integration tests for
-  it. Integrate the cli handling.
+* Next step: Implement put_secret and main.rs change with full arguments passed
 * Further: Slowly convert everything into a future based interface
 
 Name change:

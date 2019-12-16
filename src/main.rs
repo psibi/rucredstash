@@ -48,15 +48,20 @@ enum Action {
     Put(String, String, Option<(String, String)>),
     Setup,
 }
+
+fn get_table_name(table_name: Option<String>) -> String {
+    table_name.map_or("credential-store".to_string(), |name| name)
+}
+
 // todo: remove hardcoding here
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
-        Action::Put(credential_name, credential_value, tags) => {
+        Action::Put(credential_name, credential_value, encryption_context) => {
             let result = client.put_secret(
-                "credential-store".to_string(),
+                get_table_name(app.table_name),
                 credential_name,
                 credential_value,
-                None,
+                encryption_context,
                 None,
                 None,
                 ring::hmac::HMAC_SHA256,

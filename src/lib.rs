@@ -478,12 +478,12 @@ impl CredStashClient {
         table_name: String,
         credential_name: String,
         credential_value: String,
+        encryption_context: Option<(String, String)>,
         version: Option<u64>,
-        context: Option<(String, String)>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
     ) -> impl Future<Item = PutItemOutput, Error = CredStashClientError> + 'a {
-        self.generate_key_via_kms(64, context)
+        self.generate_key_via_kms(64, encryption_context)
             .map_err(|err| From::from(err))
             .and_then(move |result| {
                 future::result(put_helper(
