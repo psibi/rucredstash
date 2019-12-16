@@ -48,7 +48,7 @@ enum Action {
     Put(String, String, Option<(String, String)>),
     Setup,
 }
-
+// todo: remove hardcoding here
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
         Action::Put(credential_name, credential_value, tags) => {
@@ -122,23 +122,35 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 }
             }
         }
-        Action::GetAll => {
-            // let result = client.get_all_secrets("credential-store".to_string());
-            // match result {
-            //     Err(err) => eprintln!("Failure: {:?}", err),
-            //     Ok(val) => val
-            //         .into_iter()
-            //         .map(|item| {
-            //             println!(
-            //                 "fetched: {} val: {}",
-            //                 item.dynamo_name,
-            //                 render_secret(item.dynamo_contents)
-            //             )
-            //         })
-            //         .collect(),
-            // }
+        Action::Get(credential_name, _context) => {
+            let mut core = Core::new().unwrap();
+            let get_future = client.get_secret(
+                "credential-store".to_string(),
+                credential_name,
+                ring::hmac::HMAC_SHA256,
+            );
+            match core.run(get_future) {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(result) => eprintln!("{:?}", result),
+            }
         }
-        _ => panic!("unimplemented"),
+        Action::GetAll => {
+            let get_future = client.get_all_secrets("credential-store".to_string());
+            let mut core = Core::new().unwrap();
+            match core.run(get_future) {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(val) => val
+                    .into_iter()
+                    .map(|item| {
+                        println!(
+                            "fetched: {} val: {}",
+                            item.dynamo_name,
+                            render_secret(item.dynamo_contents)
+                        )
+                    })
+                    .collect(),
+            }
+        }
     }
 }
 

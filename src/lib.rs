@@ -42,8 +42,8 @@ fn put_helper(
     query_output: GenerateDataKeyResponse,
     digest_algorithm: Algorithm,
     table_name: String,
-    value: String,
-    credential: String,
+    credential_value: String,
+    credential_name: String,
     version: Option<u64>,
     comment: Option<String>,
 ) -> Result<PutItemInput, CredStashClientError> {
@@ -54,7 +54,7 @@ fn put_helper(
     let aes_key = hmac_key.split_to(32);
     let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
     let crypto_context = crypto::Crypto::new();
-    let aes_enc = crypto_context.aes_encrypt_ctr(value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
+    let aes_enc = crypto_context.aes_encrypt_ctr(credential_value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
     let hmac_en = sign(&hmac_ring_key, &aes_enc); // HMAC of encrypted text
     let ciphertext_blob = query_output
         .ciphertext_blob
@@ -73,7 +73,7 @@ fn put_helper(
     put_item.condition_expression = Some("attribute_not_exists(#n)".to_string());
     let mut item = HashMap::new();
     let mut item_name = AttributeValue::default();
-    item_name.s = Some(credential);
+    item_name.s = Some(credential_name);
     item.insert("name".to_string(), item_name);
     let mut item_version = AttributeValue::default();
     item_version.s = version
