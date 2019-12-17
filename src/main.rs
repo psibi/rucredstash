@@ -13,6 +13,7 @@ use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
 
+// todo: move default type as publicly exported constants
 // todo: change to CredstashApp
 #[derive(Debug, PartialEq)]
 struct RuCredStashApp {
