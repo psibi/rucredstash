@@ -61,6 +61,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 get_table_name(app.table_name),
                 credential_name,
                 credential_value,
+                None,
                 encryption_context,
                 None,
                 None,
@@ -239,7 +240,8 @@ impl RuCredStashApp {
             .about("Put a credential from the store")
             .arg(Arg::with_name("credential").help("the name of the credential to store"))
             .arg(Arg::with_name("value").help("the value of the credential to store"))
-            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"));
+            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
+            .arg(Arg::with_name("key").short("k").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"));
 
         let put_all_command = SubCommand::with_name("putall")
             .about("Put credentials from json into the store")

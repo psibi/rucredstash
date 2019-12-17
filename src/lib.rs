@@ -478,12 +478,13 @@ impl CredStashClient {
         table_name: String,
         credential_name: String,
         credential_value: String,
+        key_id: Option<String>,
         encryption_context: Option<(String, String)>,
         version: Option<u64>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
     ) -> impl Future<Item = PutItemOutput, Error = CredStashClientError> + 'a {
-        self.generate_key_via_kms(64, encryption_context)
+        self.generate_key_via_kms(64, encryption_context, key_id)
             .map_err(|err| From::from(err))
             .and_then(move |result| {
                 future::result(put_helper(
@@ -763,6 +764,7 @@ impl CredStashClient {
         &self,
         number_of_bytes: i64,
         encryption_context: Option<(String, String)>,
+        key_id: Option<String>,
     ) -> impl Future<Item = GenerateDataKeyResponse, Error = RusotoError<GenerateDataKeyError>>
     {
         let mut query: GenerateDataKeyRequest = Default::default();
