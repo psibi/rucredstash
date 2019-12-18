@@ -2,7 +2,7 @@ extern crate base64;
 extern crate clap;
 extern crate tokio_core;
 
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, ArgGroup, SubCommand};
 use credstash::{CredStashClient, CredstashKey};
 use std::ffi::OsString;
 mod crypto;
@@ -25,6 +25,7 @@ struct RuCredStashApp {
     action: Action,
 }
 
+// todo: handle it properly
 fn render_secret(secret: Vec<u8>) -> String {
     match str::from_utf8(&secret) {
         Ok(v) => v.to_string(),
@@ -37,6 +38,16 @@ fn render_comment(comment: Option<String>) -> String {
         None => "".to_string(),
         Some(val) => val,
     }
+}
+
+// todo: implement prompt for secret
+// you likely need this to implement: https://github.com/clap-rs/clap/issues/824#issue-203710308
+struct PutOpts {
+    key_id: Option<String>,
+    comment: Option<String>,
+    version: Option<String>, // todo: use either crate for including autoversion
+    digest_algorithm: Option<String>,
+    prompt: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -242,7 +253,8 @@ impl RuCredStashApp {
             .arg(Arg::with_name("credential").help("the name of the credential to store"))
             .arg(Arg::with_name("value").help("the value of the credential to store"))
             .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
-            .arg(Arg::with_name("key").short("k").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"));
+            .arg(Arg::with_name("key").short("k").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
+            .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").conflicts_with("value"));
 
         let put_all_command = SubCommand::with_name("putall")
             .about("Put credentials from json into the store")
@@ -279,7 +291,11 @@ impl RuCredStashApp {
             ("setup", _) => Action::Setup,
             ("put", Some(put_matches)) => {
                 let credential: String = put_matches.value_of("credential").unwrap().to_string();
-                let value: String = put_matches.value_of("value").unwrap().to_string();
+                let value: String = {
+                    let val = put_matches.value_of("value");
+                    let pr = put_matches.value_of("prompt");
+                    "hi".to_string()
+                };
                 let context: Option<String> =
                     put_matches.value_of("context").map(|e| e.to_string());
                 let encryption_context: Option<(String, String)> =
