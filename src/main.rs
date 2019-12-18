@@ -1,11 +1,14 @@
 extern crate base64;
 extern crate clap;
+extern crate either;
 extern crate tokio_core;
 
 use clap::{App, Arg, ArgGroup, SubCommand};
 use credstash::{CredStashClient, CredstashKey};
+use ring::hmac::Algorithm;
 use std::ffi::OsString;
 mod crypto;
+use either::Either;
 use ring;
 use std::clone::Clone;
 use std::str;
@@ -40,14 +43,18 @@ fn render_comment(comment: Option<String>) -> String {
     }
 }
 
+enum AutoIncrement {
+    AutoIncrement,
+}
+
 // todo: implement prompt for secret
 // you likely need this to implement: https://github.com/clap-rs/clap/issues/824#issue-203710308
 struct PutOpts {
     key_id: Option<String>,
     comment: Option<String>,
-    version: Option<String>, // todo: use either crate for including autoversion
-    digest_algorithm: Option<String>,
-    prompt: bool,
+    version: Either<u8, AutoIncrement>,
+    digest_algorithm: Algorithm,
+    prompt_credential: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -250,11 +257,15 @@ impl RuCredStashApp {
 
         let put_command = SubCommand::with_name("put")
             .about("Put a credential from the store")
-            .arg(Arg::with_name("credential").help("the name of the credential to store"))
-            .arg(Arg::with_name("value").help("the value of the credential to store"))
+            .arg(Arg::with_name("credential").help("the name of the credential to store").required(true))
+            .arg(Arg::with_name("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
             .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
             .arg(Arg::with_name("key").short("k").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
-            .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").conflicts_with("value"));
+            .arg(Arg::with_name("comment").short("c").long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
+            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))            
+            .arg(Arg::with_name("autoversion").short("a").long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
+            .arg(Arg::with_name("digest").short("d").long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).case_insensitive(true))
+            .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").takes_value(false));
 
         let put_all_command = SubCommand::with_name("putall")
             .about("Put credentials from json into the store")
@@ -290,17 +301,20 @@ impl RuCredStashApp {
             ("list", _) => Action::List,
             ("setup", _) => Action::Setup,
             ("put", Some(put_matches)) => {
-                let credential: String = put_matches.value_of("credential").unwrap().to_string();
-                let value: String = {
-                    let val = put_matches.value_of("value");
-                    let pr = put_matches.value_of("prompt");
+                // todo: fix all unwrap
+                let credential_name: String =
+                    put_matches.value_of("credential").unwrap().to_string();
+                let credential_value: String = {
+                    let value = put_matches.value_of("value");
+                    let pr = put_matches.is_present("prompt");
+                    println!("{:?}, {:?}", value, pr);
                     "hi".to_string()
                 };
                 let context: Option<String> =
                     put_matches.value_of("context").map(|e| e.to_string());
                 let encryption_context: Option<(String, String)> =
                     context.map_or(None, |e| split_context_to_tuple(e));
-                Action::Put(credential, value, encryption_context)
+                Action::Put(credential_name, credential_value, encryption_context)
             }
             ("delete", Some(del_matches)) => {
                 let credential: String = del_matches.value_of("credential").unwrap().to_string();

@@ -195,6 +195,7 @@ pub struct CredStashClient {
 }
 
 // Probably rename it to CredstashItem ?
+// todo: See if you can model put function input as a subset of this type
 #[derive(Debug, Clone)]
 pub struct DynamoResult {
     pub dynamo_aes_key: Bytes,    // Key name

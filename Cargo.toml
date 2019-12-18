@@ -19,6 +19,7 @@ base64 = "0.11.0"
 hex = "0.3.1"
 futures = "0.1.29"
 tokio-core = "0.1"
+either = "1.5.3"
 
 [[bin]]
 name = "rucredstash"
