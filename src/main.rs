@@ -7,10 +7,12 @@ use clap::{App, Arg, ArgGroup, SubCommand};
 use credstash::{CredStashClient, CredstashKey};
 use ring::hmac::Algorithm;
 use std::ffi::OsString;
+use std::io::{StdoutLock, Write};
 mod crypto;
 use either::Either;
 use ring;
 use std::clone::Clone;
+use std::io;
 use std::str;
 use std::string::ToString;
 use std::vec::Vec;
@@ -43,18 +45,29 @@ fn render_comment(comment: Option<String>) -> String {
     }
 }
 
+fn to_algorithm(digest: String) -> Algorithm {
+    match digest.as_ref() {
+        "SHA1" => ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
+        "SHA256" => ring::hmac::HMAC_SHA256,
+        "SHA384" => ring::hmac::HMAC_SHA384,
+        "SHA512" => ring::hmac::HMAC_SHA512,
+        _ => panic!("Unsupported digest algorithm: {}", digest),
+    }
+}
+
+#[derive(Debug, PartialEq)]
 enum AutoIncrement {
     AutoIncrement,
 }
 
 // todo: implement prompt for secret
 // you likely need this to implement: https://github.com/clap-rs/clap/issues/824#issue-203710308
+#[derive(Debug, PartialEq)]
 struct PutOpts {
     key_id: Option<String>,
     comment: Option<String>,
     version: Either<u8, AutoIncrement>,
     digest_algorithm: Algorithm,
-    prompt_credential: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -64,7 +77,7 @@ enum Action {
     GetAll,
     Keys,
     List,
-    Put(String, String, Option<(String, String)>),
+    Put(String, String, Option<(String, String)>, PutOpts),
     Setup,
 }
 
@@ -75,7 +88,7 @@ fn get_table_name(table_name: Option<String>) -> String {
 // todo: remove hardcoding here
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
-        Action::Put(credential_name, credential_value, encryption_context) => {
+        Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
             let result = client.put_secret(
                 get_table_name(app.table_name),
                 credential_name,
@@ -260,7 +273,7 @@ impl RuCredStashApp {
             .arg(Arg::with_name("credential").help("the name of the credential to store").required(true))
             .arg(Arg::with_name("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
             .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
-            .arg(Arg::with_name("key").short("k").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
+            .arg(Arg::with_name("key").short("k").long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::with_name("comment").short("c").long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
             .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))            
             .arg(Arg::with_name("autoversion").short("a").long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
@@ -305,16 +318,63 @@ impl RuCredStashApp {
                 let credential_name: String =
                     put_matches.value_of("credential").unwrap().to_string();
                 let credential_value: String = {
-                    let value = put_matches.value_of("value");
-                    let pr = put_matches.is_present("prompt");
-                    println!("{:?}, {:?}", value, pr);
-                    "hi".to_string()
+                    let mut value = String::new();
+                    let get_input = put_matches.is_present("prompt");
+                    if get_input {
+                        print!("{}: ", credential_name);
+                        let stdout = io::stdout();
+                        let mut std_handle = stdout.lock();
+                        std_handle.flush().ok();
+                        // todo: trim newline
+                        // https://blog.v-gar.de/2019/04/rust-remove-trailing-newline-after-input/
+                        io::stdin()
+                            .read_line(&mut value)
+                            .expect("Failed to read from stdin");
+                    } else {
+                        value = put_matches.value_of("value").unwrap().to_string();
+                    }
+                    value
+                };
+                let key_id = put_matches.value_of("key").map(|e| e.to_string());
+                let comment = put_matches.value_of("comment").map(|e| e.to_string());
+                let version: Either<u8, AutoIncrement> = {
+                    let version_option = put_matches.value_of("option").map(|e| {
+                        e.to_string()
+                            .parse::<u8>()
+                            .expect("Version should be positive integer")
+                    });
+                    let autoversion = put_matches.is_present("autoversion");
+                    if autoversion {
+                        Either::Right(AutoIncrement::AutoIncrement)
+                    } else {
+                        Either::Left(version_option.unwrap())
+                    }
+                };
+                let digest_algorithm = {
+                    let algorithm = put_matches
+                        .value_of("digest")
+                        .map(|e| to_algorithm(e.to_string()));
+                    match algorithm {
+                        Some(algo) => algo,
+                        None => ring::hmac::HMAC_SHA256,
+                    }
+                };
+                let put_opts = PutOpts {
+                    key_id,
+                    comment,
+                    version,
+                    digest_algorithm,
                 };
                 let context: Option<String> =
                     put_matches.value_of("context").map(|e| e.to_string());
                 let encryption_context: Option<(String, String)> =
                     context.map_or(None, |e| split_context_to_tuple(e));
-                Action::Put(credential_name, credential_value, encryption_context)
+                Action::Put(
+                    credential_name,
+                    credential_value,
+                    encryption_context,
+                    put_opts,
+                )
             }
             ("delete", Some(del_matches)) => {
                 let credential: String = del_matches.value_of("credential").unwrap().to_string();
