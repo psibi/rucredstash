@@ -20,6 +20,8 @@ use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
 
+// todo: check output of all command in cli
+
 #[derive(Debug, PartialEq)]
 struct CredstashApp {
     region: Option<String>,

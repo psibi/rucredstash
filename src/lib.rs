@@ -198,15 +198,17 @@ pub struct CredStashClient {
 }
 
 // todo: See if you can model put function input as a subset of this type
+// todo: check if dynamo_hmac_key and digest_algorithm are same
+// https://docs.rs/ring/0.16.9/ring/hmac/struct.Key.html
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
-    pub dynamo_aes_key: Bytes,    // Key name
-    dynamo_hmac_key: Key,         // Key name
-    pub dynamo_contents: Vec<u8>, // Decrypted value
-    dynamo_hmac: Vec<u8>,         // HMAC Digest
-    digest_algorithm: Algorithm,  // Digest type
-    version: String,              // Version
-    comment: Option<String>,
+    pub dynamo_aes_key: Bytes,       // Key name
+    dynamo_hmac_key: Key,            // Key name
+    pub dynamo_contents: Vec<u8>,    // Decrypted value
+    pub hmac_digest: Vec<u8>,        // HMAC Digest
+    pub digest_algorithm: Algorithm, // Digest type
+    pub version: String,             // Version
+    pub comment: Option<String>,
     pub dynamo_name: String,
 }
 
@@ -773,7 +775,7 @@ impl CredStashClient {
                             dynamo_aes_key: aes_key,
                             dynamo_hmac_key: hmac_key,
                             dynamo_contents: contents,
-                            dynamo_hmac: item_hmac,
+                            hmac_digest: item_hmac,
                             digest_algorithm: algorithm,
                             version: dynamo_version
                                 .s
