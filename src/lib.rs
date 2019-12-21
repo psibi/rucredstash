@@ -116,7 +116,7 @@ fn get_key(
     Ok(result)
 }
 
-fn get_version(query_output: QueryOutput) -> Result<String, CredStashClientError> {
+fn get_version(query_output: QueryOutput) -> Result<u64, CredStashClientError> {
     let dynamo_result = query_output
         .items
         .ok_or(CredStashClientError::AWSDynamoError(
@@ -140,7 +140,8 @@ fn get_version(query_output: QueryOutput) -> Result<String, CredStashClientError
         .ok_or(CredStashClientError::AWSDynamoError(
             "version column value not present".to_string(),
         ))?
-        .to_owned())
+        .to_owned()
+        .parse::<u64>()?)
 }
 
 fn pad_integer(num: u64) -> String {
@@ -227,6 +228,13 @@ pub enum CredStashClientError {
     CredstashDecodeFalure(DecodeError),
     CredstashHexFailure(FromHexError),
     HMacMismatch,
+    ParseError(String),
+}
+
+impl From<std::num::ParseIntError> for CredStashClientError {
+    fn from(error: std::num::ParseIntError) -> Self {
+        CredStashClientError::ParseError(error.to_string())
+    }
 }
 
 impl From<RusotoError<DescribeTableError>> for CredStashClientError {
@@ -379,11 +387,46 @@ impl CredStashClient {
         })
     }
 
+    pub fn put_secret_auto_version<'a>(
+        &'a self,
+        table_name: String,
+        credential_name: String,
+        credential_value: String,
+        key_id: Option<String>,
+        encryption_context: Option<(String, String)>,
+        comment: Option<String>,
+        digest_algorithm: Algorithm,
+    ) -> impl Future<Item = PutItemOutput, Error = CredStashClientError> + 'a {
+        self.get_highest_version(table_name.clone(), credential_name.clone())
+            .then(move |result| match result {
+                Err(_err) => self.put_secret(
+                    table_name.clone(),
+                    credential_name.clone(),
+                    credential_value.clone(),
+                    key_id.clone(),
+                    encryption_context.clone(),
+                    None,
+                    comment.clone(),
+                    digest_algorithm.clone(),
+                ),
+                Ok(version) => self.put_secret(
+                    table_name,
+                    credential_name,
+                    credential_value,
+                    key_id,
+                    encryption_context,
+                    Some(version + 1),
+                    comment,
+                    digest_algorithm,
+                ),
+            })
+    }
+
     pub fn get_highest_version(
         &self,
         table: String,
         key: String,
-    ) -> impl Future<Item = String, Error = CredStashClientError> {
+    ) -> impl Future<Item = u64, Error = CredStashClientError> {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);

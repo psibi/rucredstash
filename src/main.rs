@@ -1,10 +1,15 @@
 extern crate base64;
 extern crate clap;
 extern crate either;
+extern crate futures;
 extern crate tokio_core;
 
 use clap::{App, Arg, ArgGroup, SubCommand};
 use credstash::{CredStashClient, CredstashKey};
+use futures::future;
+use futures::future::Future;
+use futures::future::IntoFuture;
+use futures::future::*;
 use ring::hmac::Algorithm;
 use std::ffi::OsString;
 use std::io::{StdoutLock, Write};
@@ -66,7 +71,7 @@ enum AutoIncrement {
 struct PutOpts {
     key_id: Option<String>,
     comment: Option<String>,
-    version: Either<u8, AutoIncrement>,
+    version: Either<u64, AutoIncrement>,
     digest_algorithm: Algorithm,
 }
 
@@ -89,18 +94,30 @@ fn get_table_name(table_name: Option<String>) -> String {
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     match app.action {
         Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
-            let result = client.put_secret(
-                get_table_name(app.table_name),
-                credential_name,
-                credential_value,
-                None,
-                encryption_context,
-                None,
-                None,
-                ring::hmac::HMAC_SHA256,
-            );
+            let table_name = get_table_name(app.table_name);
+            let box_future: Box<dyn Future<Item = _, Error = _>> = match put_opts.version {
+                Either::Left(version) => Box::new(client.put_secret(
+                    table_name.clone(),
+                    credential_name.clone(),
+                    credential_value.clone(),
+                    put_opts.key_id,
+                    encryption_context.clone(),
+                    Some(version),
+                    put_opts.comment,
+                    put_opts.digest_algorithm,
+                )),
+                Either::Right(_) => Box::new(client.put_secret_auto_version(
+                    table_name,
+                    credential_name,
+                    credential_value,
+                    put_opts.key_id,
+                    encryption_context,
+                    put_opts.comment,
+                    put_opts.digest_algorithm,
+                )),
+            };
             let mut core = Core::new().unwrap();
-            match core.run(result) {
+            match core.run(box_future) {
                 Ok(_) => println!("Item putten successfully"),
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
@@ -337,17 +354,17 @@ impl RuCredStashApp {
                 };
                 let key_id = put_matches.value_of("key").map(|e| e.to_string());
                 let comment = put_matches.value_of("comment").map(|e| e.to_string());
-                let version: Either<u8, AutoIncrement> = {
-                    let version_option = put_matches.value_of("option").map(|e| {
+                let version: Either<u64, AutoIncrement> = {
+                    let version_option = put_matches.value_of("option").map_or(1, |e| {
                         e.to_string()
-                            .parse::<u8>()
+                            .parse::<u64>()
                             .expect("Version should be positive integer")
                     });
                     let autoversion = put_matches.is_present("autoversion");
                     if autoversion {
                         Either::Right(AutoIncrement::AutoIncrement)
                     } else {
-                        Either::Left(version_option.unwrap())
+                        Either::Left(version_option)
                     }
                 };
                 let digest_algorithm = {
