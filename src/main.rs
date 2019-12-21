@@ -20,23 +20,19 @@ use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
 
-// todo: move default type as publicly exported constants
-// todo: change to CredstashApp
 #[derive(Debug, PartialEq)]
-struct RuCredStashApp {
-    name: String,
-    region_option: Option<String>,
+struct CredstashApp {
+    region: Option<String>,
     aws_profile: Option<String>,
     table_name: Option<String>,
-    aws_arn: Option<String>,
+    iam_arn: Option<String>,
     action: Action,
 }
 
-// todo: handle it properly
 fn render_secret(secret: Vec<u8>) -> String {
     match str::from_utf8(&secret) {
         Ok(v) => v.to_string(),
-        Err(_) => "".to_string(),
+        Err(err) => panic!("Decode failure: {}", err),
     }
 }
 
@@ -68,8 +64,6 @@ struct GetAllOpts {
     encryption_context: Option<(String, String)>,
 }
 
-// todo: implement prompt for secret
-// you likely need this to implement: https://github.com/clap-rs/clap/issues/824#issue-203710308
 #[derive(Debug, PartialEq)]
 struct PutOpts {
     key_id: Option<String>,
@@ -104,8 +98,7 @@ fn get_table_name(table_name: Option<String>) -> String {
     table_name.map_or("credential-store".to_string(), |name| name)
 }
 
-// todo: remove hardcoding here
-fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
+fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
     let table_name = get_table_name(app.table_name);
     match app.action {
         Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
@@ -137,7 +130,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
             }
         }
         Action::List => {
-            let result = client.list_secrets("credential-store".to_string());
+            let result = client.list_secrets(table_name);
             match result {
                 Err(err) => println!("Failure: {:?}", err),
                 Ok(val) => {
@@ -160,7 +153,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
             }
         }
         Action::Delete(credential) => {
-            let result = client.delete_secret("credential-store".to_string(), credential);
+            let result = client.delete_secret(table_name, credential);
             let mut core = Core::new().unwrap();
             match core.run(result) {
                 Ok(_) => println!("Item deleted"),
@@ -178,7 +171,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
             }
         }
         Action::Keys => {
-            let result = client.list_secrets("credential-store".to_string());
+            let result = client.list_secrets(table_name);
             match result {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(val) => {
@@ -228,7 +221,7 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
     }
 }
 
-impl RuCredStashApp {
+impl CredstashApp {
     fn new() -> Self {
         Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
     }
@@ -344,7 +337,10 @@ impl RuCredStashApp {
         let region: Option<&str> = matches.value_of("region");
         let action_value: Action = match matches.subcommand() {
             ("get", Some(get_matches)) => {
-                let credential: String = get_matches.value_of("credential").unwrap().to_string();
+                let credential: String = get_matches
+                    .value_of("credential")
+                    .expect("Credential not supplied")
+                    .to_string();
                 let context = get_matches.value_of("context").map(|e| e.to_string());
                 let encryption_context: Option<(String, String)> =
                     context.map_or(None, |e| split_context_to_tuple(e));
@@ -464,11 +460,10 @@ impl RuCredStashApp {
             _ => unreachable!(),
         };
 
-        Ok(RuCredStashApp {
-            name: "Hello".to_string(),
-            region_option: region.map(|r| r.to_string()),
+        Ok(CredstashApp {
+            region: region.map(|r| r.to_string()),
             aws_profile: matches.value_of("profile").map(|r| r.to_string()),
-            aws_arn: matches.value_of("arn").map(|r| r.to_string()),
+            iam_arn: matches.value_of("arn").map(|r| r.to_string()),
             table_name: matches.value_of("table").map(|r| r.to_string()),
             action: action_value,
         })
@@ -529,55 +524,8 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
 }
 
 fn main() {
-    let test = RuCredStashApp::new();
+    let test = CredstashApp::new();
     println!("Hello, world {:?}", test);
     let client = CredStashClient::new();
     handle_action(test, client);
-
-    // Get version
-    // let version = client
-    //     .get_highest_version("credential-store".to_string(), "hello".to_string())
-    //     .unwrap();
-    // println!("{}", version);
-
-    // Put secret
-    // let test = client.put_secret(
-    //     "credential-store".to_string(),
-    //     "testkey".to_string(),
-    //     "0000000000000000001".to_string(),
-    //     "testvalue".to_string(),
-    //     None,
-    //     None,
-    //     ring::hmac::HMAC_SHA256,
-    // );
-
-    // println!("{:?}", test.unwrap());
-
-    // Get Secret
-    // let dynamo_row = client
-    //     .get_secret(
-    //         "credential-store".to_string(),
-    //         "testkey".to_string(),
-    //         ring::hmac::HMAC_SHA256,
-    //     )
-    //     .unwrap();
-
-    // let secret = CredStashClient::decrypt_secret(dynamo_row);
-    // let secret_utf8 = match str::from_utf8(&secret) {
-    //     Ok(v) => v,
-    //     Err(e) => panic!("invalid utf8 sequence: {}", e),
-    // };
-
-    // println!("{}", secret_utf8);
-
-    // Delete secret
-    // let dynamo_row = client
-    //     .delete_secret("credential-store".to_string(), "hello".to_string())
-    //     .unwrap();
-
-    // list secrets
-    // let dynamo_row = client
-    //     .list_secrets("credential-store".to_string(), ring::hmac::HMAC_SHA256)
-    //     .unwrap();
-    // println!("{:?}", dynamo_row);
 }
