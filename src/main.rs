@@ -76,9 +76,15 @@ struct PutOpts {
 }
 
 #[derive(Debug, PartialEq)]
+struct GetOpts {
+    noline: bool,
+    version: Option<u64>,
+}
+
+#[derive(Debug, PartialEq)]
 enum Action {
     Delete(String),
-    Get(String, Option<String>),
+    Get(String, Option<(String, String)>, GetOpts),
     GetAll,
     Keys,
     List,
@@ -92,9 +98,9 @@ fn get_table_name(table_name: Option<String>) -> String {
 
 // todo: remove hardcoding here
 fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
+    let table_name = get_table_name(app.table_name);
     match app.action {
         Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
-            let table_name = get_table_name(app.table_name);
             let box_future: Box<dyn Future<Item = _, Error = _>> = match put_opts.version {
                 Either::Left(version) => Box::new(client.put_secret(
                     table_name.clone(),
@@ -177,34 +183,35 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 }
             }
         }
-        Action::Get(credential_name, _context) => {
+        Action::Get(credential_name, encryption_context, get_opts) => {
             let mut core = Core::new().unwrap();
             let get_future = client.get_secret(
-                "credential-store".to_string(),
+                table_name,
                 credential_name,
-                ring::hmac::HMAC_SHA256,
+                encryption_context,
+                get_opts.version,
             );
             match core.run(get_future) {
                 Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(result) => eprintln!("{:?}", result),
+                Ok(result) => println!("{:?}", result),
             }
         }
         Action::GetAll => {
-            let get_future = client.get_all_secrets("credential-store".to_string());
-            let mut core = Core::new().unwrap();
-            match core.run(get_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(val) => val
-                    .into_iter()
-                    .map(|item| {
-                        println!(
-                            "fetched: {} val: {}",
-                            item.dynamo_name,
-                            render_secret(item.dynamo_contents)
-                        )
-                    })
-                    .collect(),
-            }
+            // let get_future = client.get_all_secrets("credential-store".to_string());
+            // let mut core = Core::new().unwrap();
+            // match core.run(get_future) {
+            //     Err(err) => eprintln!("Failure: {:?}", err),
+            //     Ok(val) => val
+            //         .into_iter()
+            //         .map(|item| {
+            //             println!(
+            //                 "fetched: {} val: {}",
+            //                 item.dynamo_name,
+            //                 render_secret(item.dynamo_contents)
+            //             )
+            //         })
+            //         .collect(),
+            // }
         }
     }
 }
@@ -274,7 +281,8 @@ impl RuCredStashApp {
                     .help("encryption context key/value pairs associated with the credential in the form of key=value")
 
             )
-            ;
+            .arg(Arg::with_name("noline").short("n").long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
+            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
 
         let get_all_command = SubCommand::with_name("getall")
             .about("Get all credentials from the store")
@@ -324,7 +332,18 @@ impl RuCredStashApp {
             ("get", Some(get_matches)) => {
                 let credential: String = get_matches.value_of("credential").unwrap().to_string();
                 let context = get_matches.value_of("context").map(|e| e.to_string());
-                Action::Get(credential, context)
+                let encryption_context: Option<(String, String)> =
+                    context.map_or(None, |e| split_context_to_tuple(e));
+                let version = get_matches.value_of("version").map(|ver| {
+                    ver.to_string()
+                        .parse::<u64>()
+                        .expect("Version should be positive integer")
+                });
+                let get_opts = GetOpts {
+                    noline: get_matches.is_present("noline"),
+                    version,
+                };
+                Action::Get(credential, encryption_context, get_opts)
             }
             ("getall", _) => Action::GetAll,
             ("keys", _) => Action::Keys,

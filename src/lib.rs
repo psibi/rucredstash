@@ -21,8 +21,9 @@ use rusoto_core::RusotoError;
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
     DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
-    DynamoDb, DynamoDbClient, KeySchemaElement, ProvisionedThroughput, PutItemError, PutItemInput,
-    PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError, ScanInput, ScanOutput,
+    DynamoDb, DynamoDbClient, GetItemError, GetItemInput, KeySchemaElement, ProvisionedThroughput,
+    PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError,
+    ScanInput, ScanOutput,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -203,7 +204,7 @@ pub struct DynamoResult {
     dynamo_hmac_key: Key,         // Key name
     pub dynamo_contents: Vec<u8>, // Decrypted value
     dynamo_hmac: Vec<u8>,         // HMAC Digest
-    dynamo_digest: String,        // Digest type
+    dynamo_digest: Algorithm,     // Digest type
     dynamo_version: String,       // Version
     dynamo_comment: Option<String>,
     pub dynamo_name: String,
@@ -239,6 +240,12 @@ impl From<std::num::ParseIntError> for CredStashClientError {
 
 impl From<RusotoError<DescribeTableError>> for CredStashClientError {
     fn from(error: RusotoError<DescribeTableError>) -> Self {
+        CredStashClientError::AWSDynamoError(error.to_string())
+    }
+}
+
+impl From<RusotoError<GetItemError>> for CredStashClientError {
+    fn from(error: RusotoError<GetItemError>) -> Self {
         CredStashClientError::AWSDynamoError(error.to_string())
     }
 }
@@ -424,8 +431,8 @@ impl CredStashClient {
 
     pub fn get_highest_version(
         &self,
-        table: String,
-        key: String,
+        table_name: String,
+        credential_name: String,
     ) -> impl Future<Item = u64, Error = CredStashClientError> {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
@@ -439,12 +446,12 @@ impl CredStashClient {
         query.expression_attribute_names = Some(attr_names);
 
         let mut str_attr: AttributeValue = AttributeValue::default();
-        str_attr.s = Some(key);
+        str_attr.s = Some(credential_name);
 
         let mut attr_values = HashMap::new();
         attr_values.insert(":nameValue".to_string(), str_attr);
         query.expression_attribute_values = Some(attr_values);
-        query.table_name = table;
+        query.table_name = table_name;
 
         query.projection_expression = Some("version".to_string());
         self.dynamo_client
@@ -617,6 +624,8 @@ impl CredStashClient {
     pub fn get_all_secrets<'a>(
         &'a self,
         table_name: String,
+        encryption_context: Option<(String, String)>,
+        version: Option<u64>,
     ) -> impl Future<Item = Vec<DynamoResult>, Error = CredStashClientError> + 'a {
         let table = table_name.clone();
         let keys: Vec<CredstashKey> = match self.list_secrets(table) {
@@ -626,10 +635,15 @@ impl CredStashClient {
         let items: Vec<_> = keys
             .into_iter()
             .map(|item| {
-                self.get_secret(table_name.clone(), item.name, ring::hmac::HMAC_SHA256)
-                    .map_err(|err| From::from(err))
-                    .and_then(|result| Ok(result))
-                    .into_future()
+                self.get_secret(
+                    table_name.clone(),
+                    item.name,
+                    encryption_context.clone(),
+                    version,
+                )
+                .map_err(|err| From::from(err))
+                .and_then(|result| Ok(result))
+                .into_future()
             })
             .collect();
         join_all(items)
@@ -637,11 +651,11 @@ impl CredStashClient {
 
     fn to_dynamo_result<'a>(
         &'a self,
-        query_output: Result<QueryOutput, RusotoError<QueryError>>,
-        digest_algorithm: Algorithm,
+        query_output: Option<Vec<HashMap<String, AttributeValue>>>,
+        encryption_context: Option<(String, String)>,
     ) -> impl Future<Item = DynamoResult, Error = CredStashClientError> + 'a {
         fn aux(
-            result: Result<QueryOutput, RusotoError<QueryError>>,
+            items: Option<Vec<HashMap<String, AttributeValue>>>,
         ) -> Result<
             (
                 AttributeValue,
@@ -653,7 +667,7 @@ impl CredStashClient {
             ),
             CredStashClientError,
         > {
-            let dynamo_result = result?.items.ok_or(CredStashClientError::AWSDynamoError(
+            let dynamo_result = items.ok_or(CredStashClientError::AWSDynamoError(
                 "items column is missing".to_string(),
             ))?;
             let item: HashMap<String, AttributeValue> =
@@ -717,6 +731,7 @@ impl CredStashClient {
             ))
         }
         let aux_future = future::result(aux(query_output));
+
         aux_future
             .map_err(|err| From::from(err))
             .and_then(move |result| {
@@ -728,7 +743,14 @@ impl CredStashClient {
                     dynamo_digest,
                     dynamo_version,
                 ) = result;
-                self.decrypt_via_kms(digest_algorithm.clone(), decoded_key)
+                let algorithm = dynamo_digest
+                    .s
+                    .as_ref()
+                    .to_owned()
+                    .map_or(ring::hmac::HMAC_SHA256, |item| {
+                        to_algorithm(item.to_owned())
+                    });
+                self.decrypt_via_kms(algorithm.clone(), decoded_key, encryption_context)
                     .map_err(|err| From::from(err))
                     .and_then(move |(hmac_key, aes_key)| {
                         let crypto_context = crypto::Crypto::new();
@@ -747,13 +769,7 @@ impl CredStashClient {
                             dynamo_hmac_key: hmac_key,
                             dynamo_contents: contents,
                             dynamo_hmac: item_hmac,
-                            dynamo_digest: dynamo_digest
-                                .s
-                                .as_ref()
-                                .ok_or(CredStashClientError::AWSDynamoError(
-                                    "digest column value not present".to_string(),
-                                ))?
-                                .to_owned(),
+                            dynamo_digest: algorithm,
                             dynamo_version: dynamo_version
                                 .s
                                 .as_ref()
@@ -777,8 +793,9 @@ impl CredStashClient {
     pub fn get_secret<'a>(
         &'a self,
         table_name: String,
-        key: String,
-        digest_algorithm: Algorithm,
+        credential_name: String,
+        encryption_context: Option<(String, String)>,
+        version: Option<u64>,
     ) -> impl Future<Item = DynamoResult, Error = CredStashClientError> + 'a {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
@@ -789,19 +806,53 @@ impl CredStashClient {
 
         let mut attr_names = HashMap::new();
         attr_names.insert("#n".to_string(), "name".to_string());
-        query.expression_attribute_names = Some(attr_names);
+        query.expression_attribute_names = Some(attr_names.clone());
 
         let mut str_attr: AttributeValue = AttributeValue::default();
-        str_attr.s = Some(key);
+        str_attr.s = Some(credential_name.clone());
 
         let mut attr_values = HashMap::new();
         attr_values.insert(":nameValue".to_string(), str_attr);
-        query.expression_attribute_values = Some(attr_values);
-        query.table_name = table_name;
-        self.dynamo_client
-            .query(query)
-            .map_err(|err| From::from(err))
-            .and_then(move |result| self.to_dynamo_result(Ok(result.clone()), digest_algorithm))
+        query.expression_attribute_values = Some(attr_values.clone());
+        query.table_name = table_name.clone();
+        // Have a different logic for version
+        let get_future = match version {
+            None => {
+                let box_future: Box<dyn Future<Item = _, Error = _>> = Box::new(
+                    self.dynamo_client
+                        .query(query)
+                        .map_err(|err| From::from(err))
+                        .and_then(move |result| {
+                            self.to_dynamo_result(result.items, encryption_context)
+                        }),
+                );
+                box_future
+            }
+            Some(ver) => {
+                let mut get_item_input: GetItemInput = Default::default();
+                get_item_input.table_name = table_name;
+                let mut key = HashMap::new();
+                let mut name_attr = AttributeValue::default();
+                name_attr.s = Some(credential_name);
+                let mut version_attr = AttributeValue::default();
+                version_attr.s = Some(pad_integer(ver));
+                key.insert("name".to_string(), name_attr);
+                key.insert("version".to_string(), version_attr);
+                get_item_input.key = key;
+                let box_future: Box<dyn Future<Item = _, Error = _>> = Box::new(
+                    self.dynamo_client
+                        .get_item(get_item_input)
+                        .map_err(|err| From::from(err))
+                        .and_then(move |result| {
+                            let item = result.item;
+                            let items = item.map(|hashmap| vec![hashmap]);
+                            self.to_dynamo_result(items, encryption_context)
+                        }),
+                );
+                box_future
+            }
+        };
+        get_future
     }
 
     fn generate_key_via_kms(
@@ -826,9 +877,20 @@ impl CredStashClient {
         &self,
         digest_algorithm: Algorithm,
         cipher: Vec<u8>,
+        encryption_context: Option<(String, String)>,
     ) -> impl Future<Item = (Key, Bytes), Error = CredStashClientError> {
         let mut query: DecryptRequest = Default::default();
+        let mut context = HashMap::new();
+
         query.ciphertext_blob = Bytes::from(cipher);
+        match encryption_context {
+            None => query.encryption_context = None,
+            Some((c1, c2)) => {
+                context.insert(c1, c2);
+                query.encryption_context = Some(context);
+            }
+        }
+
         self.kms_client
             .decrypt(query)
             .map_err(|err| From::from(err))
@@ -839,5 +901,15 @@ impl CredStashClient {
     pub fn decrypt_secret(contents: Vec<u8>, key: Bytes) -> Vec<u8> {
         let crypto_context = crypto::Crypto::new();
         crypto_context.aes_decrypt_ctr3(contents, key.into_iter().collect())
+    }
+}
+
+fn to_algorithm(digest: String) -> Algorithm {
+    match digest.as_ref() {
+        "SHA1" => ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
+        "SHA256" => ring::hmac::HMAC_SHA256,
+        "SHA384" => ring::hmac::HMAC_SHA384,
+        "SHA512" => ring::hmac::HMAC_SHA512,
+        _ => panic!("Unsupported digest algorithm: {}", digest),
     }
 }
