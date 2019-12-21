@@ -23,7 +23,7 @@ use rusoto_dynamodb::{
     DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
     DynamoDb, DynamoDbClient, GetItemError, GetItemInput, KeySchemaElement, ProvisionedThroughput,
     PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError,
-    ScanInput, ScanOutput,
+    ScanInput, ScanOutput, Tag,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -561,7 +561,7 @@ impl CredStashClient {
     pub fn create_db_table<'a>(
         &'a self,
         table_name: String,
-        tags: String,
+        tags: Option<Vec<(String, String)>>,
     ) -> impl Future<Item = CreateTableOutput, Error = CredStashClientError> + 'a {
         let mut query: DescribeTableInput = Default::default();
         query.table_name = table_name.clone();
@@ -609,8 +609,18 @@ impl CredStashClient {
         throughput.write_capacity_units = 1;
         create_query.provisioned_throughput = Some(throughput);
 
-        // todo: add tags also to create_query
-        // todo: wait till tablestatus becomes active. see if you can do something with tokio
+        let table_tags: Option<Vec<Tag>> = tags.map(|item| {
+            item.into_iter()
+                .map(|(name, value)| {
+                    let mut tag: Tag = Default::default();
+                    tag.key = name;
+                    tag.value = value;
+                    tag
+                })
+                .collect()
+        });
+
+        create_query.tags = table_tags;
         table_result
             .map_err(|err| From::from(err))
             .and_then(move |_result| {
@@ -863,7 +873,7 @@ impl CredStashClient {
     ) -> impl Future<Item = GenerateDataKeyResponse, Error = RusotoError<GenerateDataKeyError>>
     {
         let mut query: GenerateDataKeyRequest = Default::default();
-        query.key_id = "alias/credstash".to_string();
+        query.key_id = key_id.map_or("alias/credstash".to_string(), |item| item);
         query.number_of_bytes = Some(number_of_bytes);
         query.encryption_context = encryption_context.map(|(context_key, context_value)| {
             let mut hash_map = HashMap::new();

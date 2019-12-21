@@ -4,15 +4,12 @@ extern crate either;
 extern crate futures;
 extern crate tokio_core;
 
-use clap::{App, Arg, ArgGroup, SubCommand};
-use credstash::{CredStashClient, CredstashKey};
-use futures::future;
+use clap::{App, Arg, SubCommand};
+use credstash::CredStashClient;
 use futures::future::Future;
-use futures::future::IntoFuture;
-use futures::future::*;
 use ring::hmac::Algorithm;
 use std::ffi::OsString;
-use std::io::{StdoutLock, Write};
+use std::io::Write;
 mod crypto;
 use either::Either;
 use ring;
@@ -82,6 +79,11 @@ struct PutOpts {
 }
 
 #[derive(Debug, PartialEq)]
+struct SetupOpts {
+    tags: Option<Vec<(String, String)>>,
+}
+
+#[derive(Debug, PartialEq)]
 struct GetOpts {
     noline: bool,
     version: Option<u64>,
@@ -95,7 +97,7 @@ enum Action {
     Keys,
     List,
     Put(String, String, Option<(String, String)>, PutOpts),
-    Setup,
+    Setup(SetupOpts),
 }
 
 fn get_table_name(table_name: Option<String>) -> String {
@@ -145,17 +147,15 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                     let max_len = max_name_len
                         .iter()
                         .fold(1, |acc, x| if acc < *x { *x } else { acc });
-                    val.into_iter()
-                        .map(|item| {
-                            println!(
-                                "{:width$} -- version {: <10} --comment {}",
-                                item.name,
-                                item.version,
-                                render_comment(item.comment),
-                                width = max_len
-                            )
-                        })
-                        .collect::<Vec<()>>();
+                    for item in val {
+                        println!(
+                            "{:width$} -- version {: <10} --comment {}",
+                            item.name,
+                            item.version,
+                            render_comment(item.comment),
+                            width = max_len
+                        )
+                    }
                 }
             }
         }
@@ -167,12 +167,12 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
-        Action::Setup => {
-            let result = client.create_db_table("test-db".to_string(), "fixme".to_string());
+        Action::Setup(setup_opts) => {
+            let result = client.create_db_table(table_name, setup_opts.tags);
             let mut core = Core::new().unwrap();
             match core.run(result) {
                 Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(val) => {
+                Ok(_val) => {
                     println!("Creation initiated");
                 }
             }
@@ -182,10 +182,9 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
             match result {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(val) => {
-                    let d: Vec<()> = val
-                        .into_iter()
-                        .map(|item| println!("{}", item.name))
-                        .collect();
+                    for item in val {
+                        println!("{}", item.name)
+                    }
                 }
             }
         }
@@ -324,7 +323,7 @@ impl RuCredStashApp {
             .about("Put credentials from json into the store")
             .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
-        let setup_command = SubCommand::with_name("setup").about("setup the credential store");
+        let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
 
         let app = app
             .arg(region_arg)
@@ -379,7 +378,22 @@ impl RuCredStashApp {
             }
             ("keys", _) => Action::Keys,
             ("list", _) => Action::List,
-            ("setup", _) => Action::Setup,
+            ("setup", None) => {
+                let setup_opts = SetupOpts { tags: None };
+                Action::Setup(setup_opts)
+            }
+            ("setup", Some(setup_matches)) => {
+                let tags = setup_matches.values_of("tags");
+                let tags_options: Option<Vec<String>> =
+                    tags.map(|values| values.into_iter().map(|item| item.to_string()).collect());
+                let table_tags: Option<Vec<(String, String)>> = tags_options.map(|item| {
+                    item.into_iter()
+                        .filter_map(|item| split_tags_to_tuple(item))
+                        .collect()
+                });
+                let setup_opts = SetupOpts { tags: table_tags };
+                Action::Setup(setup_opts)
+            }
             ("put", Some(put_matches)) => {
                 // todo: fix all unwrap
                 let credential_name: String =
@@ -473,6 +487,22 @@ fn split_context_to_tuple(encryption_context: String) -> Option<(String, String)
         2 => Some((context[0].to_string(), context[1].to_string())),
         _ => panic!(
             "error: argument context: {} is not the form of key=value",
+            encryption_context
+        ),
+    }
+}
+
+fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
+    let context: Vec<&str> = encryption_context.split('=').collect();
+    match context.len() {
+        0 => None,
+        1 => panic!(
+            "argument --tags: {} is not the form of key=value",
+            encryption_context
+        ),
+        2 => Some((context[0].to_string(), context[1].to_string())),
+        _ => panic!(
+            "argument --tags: {} is not the form of key=value",
             encryption_context
         ),
     }
