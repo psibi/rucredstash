@@ -524,8 +524,8 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
 }
 
 fn main() {
-    let test = CredstashApp::new();
-    println!("Hello, world {:?}", test);
+    let app = CredstashApp::new();
+    println!("Hello, world {:?}", app);
     let client = CredStashClient::new();
-    handle_action(test, client);
+    handle_action(app, client);
 }

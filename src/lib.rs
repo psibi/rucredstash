@@ -9,6 +9,7 @@ use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use core::convert::From;
 mod crypto;
+pub use crate::crypto::credstash_crypto::Crypto;
 use futures::future;
 use futures::future::Future;
 use futures::future::IntoFuture;
@@ -54,7 +55,7 @@ fn put_helper(
     };
     let aes_key = hmac_key.split_to(32);
     let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
-    let crypto_context = crypto::Crypto::new();
+    let crypto_context = Crypto::new();
     let aes_enc = crypto_context.aes_encrypt_ctr(credential_value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
     let hmac_en = sign(&hmac_ring_key, &aes_enc); // HMAC of encrypted text
     let ciphertext_blob = query_output
@@ -196,17 +197,16 @@ pub struct CredStashClient {
     kms_client: KmsClient,
 }
 
-// Probably rename it to CredstashItem ?
 // todo: See if you can model put function input as a subset of this type
 #[derive(Debug, Clone)]
-pub struct DynamoResult {
+pub struct CredstashItem {
     pub dynamo_aes_key: Bytes,    // Key name
     dynamo_hmac_key: Key,         // Key name
     pub dynamo_contents: Vec<u8>, // Decrypted value
     dynamo_hmac: Vec<u8>,         // HMAC Digest
     dynamo_digest: Algorithm,     // Digest type
     dynamo_version: String,       // Version
-    dynamo_comment: Option<String>,
+    comment: Option<String>,
     pub dynamo_name: String,
 }
 
@@ -220,10 +220,6 @@ pub struct CredstashKey {
 #[derive(Debug, PartialEq)]
 pub enum CredStashClientError {
     NoKeyFound,
-    KMSError(RusotoError<DecryptError>),
-    KMSDataKeyError(RusotoError<GenerateDataKeyError>),
-    DynamoError(RusotoError<QueryError>),
-    DynamoError2(RusotoError<PutItemError>),
     AWSDynamoError(String),
     AWSKMSError(String),
     CredstashDecodeFalure(DecodeError),
@@ -258,13 +254,13 @@ impl From<RusotoError<CreateTableError>> for CredStashClientError {
 
 impl From<RusotoError<GenerateDataKeyError>> for CredStashClientError {
     fn from(error: RusotoError<GenerateDataKeyError>) -> Self {
-        CredStashClientError::KMSDataKeyError(error)
+        CredStashClientError::AWSKMSError(error.to_string())
     }
 }
 
 impl From<RusotoError<PutItemError>> for CredStashClientError {
     fn from(error: RusotoError<PutItemError>) -> Self {
-        CredStashClientError::DynamoError2(error)
+        CredStashClientError::AWSDynamoError(error.to_string())
     }
 }
 
@@ -365,7 +361,7 @@ impl CredStashClient {
                 .ok_or(CredStashClientError::AWSDynamoError(
                     "version column is missing".to_string(),
                 ))?;
-        let dynamo_comment: Option<&AttributeValue> = item.get("comment");
+        let comment: Option<&AttributeValue> = item.get("comment");
 
         let name = dynamo_name
             .s
@@ -381,8 +377,7 @@ impl CredStashClient {
                 "version column value not present".to_string(),
             ))?
             .to_owned();
-        // todo: convert to use flatten once it is available in stable
-        let comment: Option<String> = match dynamo_comment.map(|item| item.s.as_ref()) {
+        let comment: Option<String> = match comment.map(|item| item.s.as_ref()) {
             None => None,
             Some(None) => None,
             Some(Some(c)) => Some(c.to_string()),
@@ -636,7 +631,7 @@ impl CredStashClient {
         table_name: String,
         encryption_context: Option<(String, String)>,
         version: Option<u64>,
-    ) -> impl Future<Item = Vec<DynamoResult>, Error = CredStashClientError> + 'a {
+    ) -> impl Future<Item = Vec<CredstashItem>, Error = CredStashClientError> + 'a {
         let table = table_name.clone();
         let keys: Vec<CredstashKey> = match self.list_secrets(table) {
             Ok(items) => items,
@@ -663,7 +658,7 @@ impl CredStashClient {
         &'a self,
         query_output: Option<Vec<HashMap<String, AttributeValue>>>,
         encryption_context: Option<(String, String)>,
-    ) -> impl Future<Item = DynamoResult, Error = CredStashClientError> + 'a {
+    ) -> impl Future<Item = CredstashItem, Error = CredStashClientError> + 'a {
         fn aux(
             items: Option<Vec<HashMap<String, AttributeValue>>>,
         ) -> Result<
@@ -763,7 +758,7 @@ impl CredStashClient {
                 self.decrypt_via_kms(algorithm.clone(), decoded_key, encryption_context)
                     .map_err(|err| From::from(err))
                     .and_then(move |(hmac_key, aes_key)| {
-                        let crypto_context = crypto::Crypto::new();
+                        let crypto_context = Crypto::new();
                         let verified = crypto_context.verify_ciphertext_integrity(
                             &hmac_key,
                             &item_contents,
@@ -773,8 +768,8 @@ impl CredStashClient {
                             return Err(CredStashClientError::HMacMismatch);
                         }
                         let contents =
-                            CredStashClient::decrypt_secret(item_contents, aes_key.clone());
-                        Ok(DynamoResult {
+                            crypto_context.aes_decrypt_ctr(item_contents, aes_key.to_vec().clone());
+                        Ok(CredstashItem {
                             dynamo_aes_key: aes_key,
                             dynamo_hmac_key: hmac_key,
                             dynamo_contents: contents,
@@ -787,7 +782,7 @@ impl CredStashClient {
                                     "version column value not present".to_string(),
                                 ))?
                                 .to_owned(),
-                            dynamo_comment: None,
+                            comment: None,
                             dynamo_name: dynamo_name
                                 .s
                                 .as_ref()
@@ -806,7 +801,7 @@ impl CredStashClient {
         credential_name: String,
         encryption_context: Option<(String, String)>,
         version: Option<u64>,
-    ) -> impl Future<Item = DynamoResult, Error = CredStashClientError> + 'a {
+    ) -> impl Future<Item = CredstashItem, Error = CredStashClientError> + 'a {
         let mut query: QueryInput = Default::default();
         query.scan_index_forward = Some(false);
         query.limit = Some(1);
@@ -905,12 +900,6 @@ impl CredStashClient {
             .decrypt(query)
             .map_err(|err| From::from(err))
             .and_then(move |result| get_key(result, digest_algorithm))
-    }
-
-    // todo: probably move to crypto context
-    pub fn decrypt_secret(contents: Vec<u8>, key: Bytes) -> Vec<u8> {
-        let crypto_context = crypto::Crypto::new();
-        crypto_context.aes_decrypt_ctr3(contents, key.into_iter().collect())
     }
 }
 
