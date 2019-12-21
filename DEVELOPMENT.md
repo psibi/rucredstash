@@ -31,12 +31,12 @@ Default digest algorithm: `SHA256`
 
 ## Done
 
-* Miniature version of get algorithm
-* Miniature version of put algorithm
+* Full version of get algorithm
+* Full version of put algorithm
 * Full version of delete algorithm (At least that's what I believe)
 * Full version of keys subcommand
 * Full version of list subcommand
-* Minimal version of getall subcommand
+* Full version of getall subcommand
 * Minimal version of setup subcommand
 
 ## Missing

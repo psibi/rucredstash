@@ -323,7 +323,7 @@ impl RuCredStashApp {
             .about("Put credentials from json into the store")
             .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
-        let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
+        let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
 
         let app = app
             .arg(region_arg)
@@ -472,23 +472,35 @@ impl RuCredStashApp {
             table_name: matches.value_of("table").map(|r| r.to_string()),
             action: action_value,
         })
-        // panic!("undefined");
     }
+}
+
+fn program_exit(msg: &str) {
+    println!("{}", msg);
+    std::process::exit(1);
 }
 
 fn split_context_to_tuple(encryption_context: String) -> Option<(String, String)> {
     let context: Vec<&str> = encryption_context.split('=').collect();
     match context.len() {
         0 => None,
-        1 => panic!(
-            "error: argument context: {} is not the form of key=value",
-            encryption_context
-        ),
+        1 => {
+            let msg = format!(
+                "error: argument context: {} is not the form of key=value",
+                encryption_context
+            );
+            program_exit(&msg);
+            None
+        }
         2 => Some((context[0].to_string(), context[1].to_string())),
-        _ => panic!(
-            "error: argument context: {} is not the form of key=value",
-            encryption_context
-        ),
+        _ => {
+            let msg = format!(
+                "error: argument context: {} is not the form of key=value",
+                encryption_context
+            );
+            program_exit(&msg);
+            None
+        }
     }
 }
 
@@ -496,15 +508,23 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
     let context: Vec<&str> = encryption_context.split('=').collect();
     match context.len() {
         0 => None,
-        1 => panic!(
-            "argument --tags: {} is not the form of key=value",
-            encryption_context
-        ),
+        1 => {
+            let msg = format!(
+                "argument --tags: {} is not the form of key=value",
+                encryption_context
+            );
+            program_exit(&msg);
+            None
+        }
         2 => Some((context[0].to_string(), context[1].to_string())),
-        _ => panic!(
-            "argument --tags: {} is not the form of key=value",
-            encryption_context
-        ),
+        _ => {
+            let msg = format!(
+                "argument --tags: {} is not the form of key=value",
+                encryption_context
+            );
+            program_exit(&msg);
+            None
+        }
     }
 }
 
