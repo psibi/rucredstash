@@ -202,14 +202,14 @@ pub struct CredStashClient {
 // https://docs.rs/ring/0.16.9/ring/hmac/struct.Key.html
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
-    pub dynamo_aes_key: Bytes,       // Key name
-    dynamo_hmac_key: Key,            // Key name
-    pub dynamo_contents: Vec<u8>,    // Decrypted value
+    pub aes_key: Bytes,              // Key name
+    pub dynamo_hmac_key: Key,        // Key name
+    pub credential_value: Vec<u8>,   // Decrypted value
     pub hmac_digest: Vec<u8>,        // HMAC Digest
     pub digest_algorithm: Algorithm, // Digest type
     pub version: String,             // Version
     pub comment: Option<String>,
-    pub dynamo_name: String,
+    pub credential_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -772,9 +772,9 @@ impl CredStashClient {
                         let contents =
                             crypto_context.aes_decrypt_ctr(item_contents, aes_key.to_vec().clone());
                         Ok(CredstashItem {
-                            dynamo_aes_key: aes_key,
+                            aes_key: aes_key,
                             dynamo_hmac_key: hmac_key,
-                            dynamo_contents: contents,
+                            credential_value: contents,
                             hmac_digest: item_hmac,
                             digest_algorithm: algorithm,
                             version: dynamo_version
@@ -785,7 +785,7 @@ impl CredStashClient {
                                 ))?
                                 .to_owned(),
                             comment: None,
-                            dynamo_name: dynamo_name
+                            credential_name: dynamo_name
                                 .s
                                 .as_ref()
                                 .ok_or(CredStashClientError::AWSDynamoError(
