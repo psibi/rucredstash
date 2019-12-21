@@ -205,7 +205,7 @@ pub struct CredstashItem {
     pub dynamo_contents: Vec<u8>, // Decrypted value
     dynamo_hmac: Vec<u8>,         // HMAC Digest
     dynamo_digest: Algorithm,     // Digest type
-    dynamo_version: String,       // Version
+    version: String,              // Version
     comment: Option<String>,
     pub dynamo_name: String,
 }
@@ -775,7 +775,7 @@ impl CredStashClient {
                             dynamo_contents: contents,
                             dynamo_hmac: item_hmac,
                             dynamo_digest: algorithm,
-                            dynamo_version: dynamo_version
+                            version: dynamo_version
                                 .s
                                 .as_ref()
                                 .ok_or(CredStashClientError::AWSDynamoError(
