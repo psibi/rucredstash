@@ -65,6 +65,12 @@ enum AutoIncrement {
     AutoIncrement,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+struct GetAllOpts {
+    version: Option<u64>,
+    encryption_context: Option<(String, String)>,
+}
+
 // todo: implement prompt for secret
 // you likely need this to implement: https://github.com/clap-rs/clap/issues/824#issue-203710308
 #[derive(Debug, PartialEq)]
@@ -85,7 +91,7 @@ struct GetOpts {
 enum Action {
     Delete(String),
     Get(String, Option<(String, String)>, GetOpts),
-    GetAll,
+    GetAll(Option<GetAllOpts>),
     Keys,
     List,
     Put(String, String, Option<(String, String)>, PutOpts),
@@ -196,22 +202,29 @@ fn handle_action(app: RuCredStashApp, client: CredStashClient) -> () {
                 Ok(result) => println!("{:?}", result),
             }
         }
-        Action::GetAll => {
-            // let get_future = client.get_all_secrets("credential-store".to_string());
-            // let mut core = Core::new().unwrap();
-            // match core.run(get_future) {
-            //     Err(err) => eprintln!("Failure: {:?}", err),
-            //     Ok(val) => val
-            //         .into_iter()
-            //         .map(|item| {
-            //             println!(
-            //                 "fetched: {} val: {}",
-            //                 item.dynamo_name,
-            //                 render_secret(item.dynamo_contents)
-            //             )
-            //         })
-            //         .collect(),
-            // }
+        Action::GetAll(get_opts) => {
+            let version = get_opts
+                .clone()
+                .map(|opts| opts.version)
+                .map_or(None, |item| item);
+            let encryption_context = get_opts
+                .map(|opts| opts.encryption_context)
+                .map_or(None, |item| item);
+            let get_future = client.get_all_secrets(table_name, encryption_context, version);
+            let mut core = Core::new().unwrap();
+            match core.run(get_future) {
+                Err(err) => eprintln!("Failure: {:?}", err),
+                Ok(val) => val
+                    .into_iter()
+                    .map(|item| {
+                        println!(
+                            "fetched: {} val: {}",
+                            item.dynamo_name,
+                            render_secret(item.dynamo_contents)
+                        )
+                    })
+                    .collect(),
+            }
         }
     }
 }
@@ -286,7 +299,9 @@ impl RuCredStashApp {
 
         let get_all_command = SubCommand::with_name("getall")
             .about("Get all credentials from the store")
-            .arg(Arg::with_name("secret").help("The secret to retrieve"));
+            .arg(Arg::with_name("context")
+                 .help("encryption context key/value pairs associated with the credential in the form of key=value")
+            ).arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
 
         let keys_command = SubCommand::with_name("keys").about("List all keys in the store");
 
@@ -345,7 +360,23 @@ impl RuCredStashApp {
                 };
                 Action::Get(credential, encryption_context, get_opts)
             }
-            ("getall", _) => Action::GetAll,
+            ("getall", None) => Action::GetAll(None),
+            ("getall", Some(get_matches)) => {
+                let context: Option<String> =
+                    get_matches.value_of("context").map(|e| e.to_string());
+                let encryption_context: Option<(String, String)> =
+                    context.map_or(None, |e| split_context_to_tuple(e));
+                let version = get_matches.value_of("version").map(|ver| {
+                    ver.to_string()
+                        .parse::<u64>()
+                        .expect("Version should be positive integer")
+                });
+                let getall_opts = GetAllOpts {
+                    version,
+                    encryption_context,
+                };
+                Action::GetAll(Some(getall_opts))
+            }
             ("keys", _) => Action::Keys,
             ("list", _) => Action::List,
             ("setup", _) => Action::Setup,
