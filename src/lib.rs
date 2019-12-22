@@ -192,30 +192,41 @@ fn get_algo256_check() {
     assert_eq!(get_algorithm(ring::hmac::HMAC_SHA256), "SHA256".to_string());
 }
 
+/// CredStash client. This Struct internally handles the KMS and
+/// DynamoDB client connections and their credentials. Note that the
+/// client will use the default credentials provider and tls client.
 pub struct CredStashClient {
     dynamo_client: DynamoDbClient,
     kms_client: KmsClient,
 }
 
-// todo: See if you can model put function input as a subset of this type
-// todo: check if dynamo_hmac_key and digest_algorithm are same
-// https://docs.rs/ring/0.16.9/ring/hmac/struct.Key.html
+/// Reprsents the Decrypted row for the `credential_name`
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
-    pub aes_key: Bytes,              // Key name
-    pub dynamo_hmac_key: Key,        // Key name
-    pub credential_value: Vec<u8>,   // Decrypted value
-    pub hmac_digest: Vec<u8>,        // HMAC Digest
-    pub digest_algorithm: Algorithm, // Digest type
-    pub version: String,             // Version
+    aes_key: Bytes,
+    pub dynamo_hmac_key: Key,
+    /// Decrypted credential value. This corresponds with the `credential_name`.
+    pub credential_value: Vec<u8>,
+    /// HMAC Digest of the encrypted text
+    pub hmac_digest: Vec<u8>,
+    /// Digest algorithm used for computation of HMAC
+    pub digest_algorithm: Algorithm,
+    /// The version of the `CredstashItem`
+    pub version: String,
+    /// Optional comment for the `CredstashItem`
     pub comment: Option<String>,
+    /// Credential name which has been stored.
     pub credential_name: String,
 }
 
+/// Represents only the Credential without the decrypted text.
 #[derive(Debug, Clone)]
 pub struct CredstashKey {
+    /// Credential name which has been stored.
     pub name: String,
+    /// The version of the `CredstashKey`
     pub version: String,
+    /// Optional comment for the `CredstashKey`
     pub comment: Option<String>,
 }
 
@@ -303,6 +314,8 @@ impl From<RusotoError<DecryptError>> for CredStashClientError {
 }
 
 impl CredStashClient {
+    /// Creates a new client backend. Note that this uses the default
+    /// AWS credential provider and the tls client.
     pub fn new(region: Option<Region>) -> Self {
         Self::new_from(region)
     }
@@ -318,6 +331,12 @@ impl CredStashClient {
         }
     }
 
+    /// Returns all the Credential name stored in the DynamoDB table.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: The name of the table from which to list `CredstashKey`
+    ///
     pub fn list_secrets<'a>(&'a self, table_name: String) -> impl Future<Item=Vec<CredstashKey>, Error=CredStashClientError> + 'a {
         let last_eval_key: Option<HashMap<String, AttributeValue>> = None;
         loop_fn((last_eval_key, vec![]), move |(last_key, mut vec_key)| {
@@ -395,6 +414,24 @@ impl CredStashClient {
         })
     }
 
+    /// Inserts new credential in the DynamoDB table. This is same as
+    /// `put_secret` but it also increments the version of the
+    /// credential_name automatically.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `credential_name`: Credential name to store.
+    /// * `credential_value`: Credential secret value which has to be
+    /// encrypted and stored securely.
+
+    /// * `key_id`: The unique identifier for the customer master key
+    /// (CMK) for which to cancel deletion.
+    ///  Specify the key ID or the Amazon Resource Name (ARN) of the CMK. <p>For example:</p> <ul> <li> <p>Key ID: <code>1234abcd-12ab-34cd-56ef-1234567890ab</code> </p> </li> <li> <p>Key ARN: <code>arn:aws:kms:us-east-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab</code> </p> </li> </ul> <p>To get the key ID and key ARN for a CMK, use <a>ListKeys</a> or <a>DescribeKey</a>.</p>
+    /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
+    /// * `comment`: Optional comment to specify for the credential.
+    /// * `digest_algorithm`: The digest algorithm that should be used
+    /// for computing the HMAC of the encrypted text.
     pub fn put_secret_auto_version<'a>(
         &'a self,
         table_name: String,
@@ -430,6 +467,13 @@ impl CredStashClient {
             })
     }
 
+    /// Get the latest version of the credential in the DynamoDB table.
+    /// credential_name automatically.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `credential_name`: Credential name to store.
     pub fn get_highest_version(
         &self,
         table_name: String,
@@ -505,12 +549,19 @@ impl CredStashClient {
         })
     }
 
+    /// Delete the credential from the DynamoDB table.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `credential_name`: Credential name to store.
+    ///
     pub fn delete_secret<'a>(
         &'a self,
         table_name: String,
-        credential: String,
+        credential_name: String,
     ) -> impl Future<Item = Vec<DeleteItemOutput>, Error = CredStashClientError> + 'a {
-        self.get_items(table_name.clone(), credential).map_err(|err| From::from(err)).and_then(move |result| {
+        self.get_items(table_name.clone(), credential_name).map_err(|err| From::from(err)).and_then(move |result| {
             let mut del_query: DeleteItemInput = Default::default();
             del_query.table_name = table_name;
             let items: Vec<_> = result.into_iter().map(|item| {
@@ -527,6 +578,22 @@ impl CredStashClient {
         })
     }
 
+    /// Inserts new credential in the DynamoDB table.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `credential_name`: Credential name to store.
+    /// * `credential_value`: Credential secret value which has to be
+    /// encrypted and stored securely.
+
+    /// * `key_id`: The unique identifier for the customer master key
+    /// (CMK) for which to cancel deletion.
+    ///  Specify the key ID or the Amazon Resource Name (ARN) of the CMK. <p>For example:</p> <ul> <li> <p>Key ID: <code>1234abcd-12ab-34cd-56ef-1234567890ab</code> </p> </li> <li> <p>Key ARN: <code>arn:aws:kms:us-east-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab</code> </p> </li> </ul> <p>To get the key ID and key ARN for a CMK, use <a>ListKeys</a> or <a>DescribeKey</a>.</p>
+    /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
+    /// * `comment`: Optional comment to specify for the credential.
+    /// * `digest_algorithm`: The digest algorithm that should be used
+    /// for computing the HMAC of the encrypted text.
     pub fn put_secret<'a>(
         &'a self,
         table_name: String,
@@ -561,6 +628,17 @@ impl CredStashClient {
             })
     }
 
+    /// Creates the necessary table for the credential to be stored in
+    /// future. Note that this API is an asynchronous operatio. Upon
+    /// receiving a CreateTable request, DynamoDB immediately returns
+    /// a response with a TableStatus of CREATING. After the table is
+    /// created, DynamoDB sets the TableStatus to ACTIVE. You can
+    /// perform read and write operations only on an ACTIVE table.
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `tags`: Tags to associate with the table.
+    ///
     pub fn create_db_table<'a>(
         &'a self,
         table_name: String,
@@ -634,6 +712,14 @@ impl CredStashClient {
             })
     }
 
+    /// Get all the secrets present in the DynamoDB table.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
+    /// * `version`: The version of the credential which has to be
+    /// retrieved. By default, it will retrieve the latest version.
     pub fn get_all_secrets<'a>(
         &'a self,
         table_name: String,
@@ -801,6 +887,15 @@ impl CredStashClient {
             })
     }
 
+    /// Get a specific secret present in the DynamoDB table.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name`: Name of the DynamoDB table against which the API operates.
+    /// * `credential_name`: Credential name which has to be retrieved.
+    /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
+    /// * `version`: The version of the credential which has to be
+    /// retrieved. By default, it will retrieve the latest version.
     pub fn get_secret<'a>(
         &'a self,
         table_name: String,
