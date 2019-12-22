@@ -41,7 +41,7 @@ Default digest algorithm: `SHA256`
 
 ## Missing
 
-* putall
+* noline
 
 ## Decrypt algorithm
 
