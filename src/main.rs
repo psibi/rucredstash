@@ -3,7 +3,6 @@ extern crate clap;
 extern crate either;
 extern crate futures;
 extern crate tokio_core;
-extern crate rusoto_credential;
 
 use clap::{App, Arg, SubCommand};
 use credstash::CredStashClient;
