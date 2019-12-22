@@ -1,4 +1,4 @@
-## Table Structure
+# Development notes
 
 ## Default values
 
@@ -53,21 +53,6 @@ the it is used for AES operation. The second half of it is used as
 HMAC key. But the "key" column is encrypted using the master key. You
 need to decrypt that first.
 
-## Questions
-
-* What happens if you put the same key multiple times ?
-
-## Todo:
-
-* encryption context for put/get
-* Next step: Implement put_secret and main.rs change with full arguments passed
-* Further: Slowly convert everything into a future based interface
-
-Name change:
-
-credential_name
-credential_value
-
 ## AWS Queries
 
 AWS Quering for getting latest version:
@@ -91,7 +76,8 @@ Todo: Test the above with encryption context, different versions.
 
 ## Things to do in Future version
 
-* Wildcard handling
+* A way to provide credentials for the API
+* async/await
 
 ## Reference
 

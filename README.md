@@ -1,52 +1,46 @@
-https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html
+# Rucredstash
 
-Workflow:
+Rucredstash is a Rust port of [CredStash](https://github.com/fugue/credstash)
 
-* credstash setup
-* create kms key via AWS Console
+It uses a comination of AWS Key Management Service (KMS) and DynamoDB
+to store secrets. This is needed when you want to store and retrieve
+your credentials (like database password, API Keys etc) securely. A
+more [detailed
+tutorial](https://www.fpcomplete.com/blog/2017/08/credstash) is here.
 
-db:
+This package offers the interface via both CLI and an libray way of
+accessing it.
 
-get_item: https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html#tymethod.get_item
+## Usage
 
-kms:
+``` shellsession
+$ rucredstash --help
+rucredstash 0.1
+Sibi Prabakaran
+A credential/secret storage system
 
-list_keys: https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html#tymethod.list_keys
+USAGE:
+    rucredstash [OPTIONS] [SUBCOMMAND]
 
-decrypt: https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html#tymethod.decrypt
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
 
-1. fetch master key
+OPTIONS:
+    -r, --region <REGION>    the AWS region in which to operate. If a region is not specified, credstash will use the
+                             value of the AWS_DEFAULT_REGION env variable, or if that is not set, the value in
+                             ~/.aws/config. As a last resort, it will use us-east-1
+    -t, --table <TABLE>      DynamoDB table to use for credential storage. If not specified, credstash will use the
+                             value of the CREDSTASH_DEFAULT_TABLE env variable, or if that is not set, the value
+                             credential-store will be used
 
-get_item
-decret data column
-d
-
-~/g/rucredstash (master) $ aws-env credstash setup
-Creating table...
-Waiting for table to be created...
-Adding tags...
-Table has been created. Go read the README about how to create your KMS key
-~/g/rucredstash (master) $ aws-env credstash put hello world
-hello has been stored
-~/g/rucredstash (master) $ aws-env credstash getall
-{
-    "dog": "cat",
-    "hello": "world\n",
-    "testkey": "testvalue\n",
-    "testkey1": "testvalue1\n"
-}
-~/g/rucredstash (master) $ aws-env credstash list
-dog      -- version 0000000000000000001 -- comment
-hello    -- version 0000000000000000001 -- comment
-testkey  -- version 0000000000000000001 -- comment
-testkey1 -- version 0000000000000000001 -- comment
-$ aws-env credstash put dog cat2
-dog version 0000000000000000001 is already in the credential store. Use the -v flag to specify a new version
-~/g/rucredstash (master) $ aws-env credstash keys
-dog
-hello
-testkey
-testkey1
-~/g/rucredstash (master) $ aws-env credstash put hello1 world1 --comment "dummy comment"
-hello1 has been stored
-~
+SUBCOMMANDS:
+    delete    Delete a credential from the store
+    get       Get a credential from the store
+    getall    Get all credentials from the store
+    help      Prints this message or the help of the given subcommand(s)
+    keys      List all keys in the store
+    list      List credentials and their versions
+    put       Put a credential from the store
+    setup     setup the credential store
+```
