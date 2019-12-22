@@ -1,6 +1,11 @@
 [package]
 name = "credstash"
 version = "0.1.0"
+description = "Credstash is a utility for managing credentials in the AWS cloud"
+keywords = ["AWS", "Amazon"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/psibi/rucredstash"
 authors = ["Sibi Prabakaran <sibi@psibi.in>"]
 edition = "2018"
 
