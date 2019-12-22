@@ -3,11 +3,15 @@ extern crate clap;
 extern crate either;
 extern crate futures;
 extern crate tokio_core;
+extern crate rusoto_credential;
 
 use clap::{App, Arg, SubCommand};
 use credstash::CredStashClient;
+use std::env;
+use rusoto_core::region::Region;
 use futures::future::Future;
 use ring::hmac::Algorithm;
+use std::str::FromStr;
 use std::ffi::OsString;
 use std::io::Write;
 use std::io::Read;
@@ -23,7 +27,7 @@ use tokio_core::reactor::Core;
 
 // todo: check output of all command in cli
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct CredstashApp {
     region: Option<String>,
     aws_profile: Option<String>,
@@ -56,7 +60,7 @@ fn to_algorithm(digest: String) -> Algorithm {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum AutoIncrement {
     AutoIncrement,
 }
@@ -67,7 +71,7 @@ struct GetAllOpts {
     encryption_context: Option<(String, String)>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct PutOpts {
     key_id: Option<String>,
     comment: Option<String>,
@@ -75,18 +79,18 @@ struct PutOpts {
     digest_algorithm: Algorithm,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct SetupOpts {
     tags: Option<Vec<(String, String)>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct GetOpts {
     noline: bool,
     version: Option<u64>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Action {
     Delete(String),
     Get(String, Option<(String, String)>, GetOpts),
@@ -191,7 +195,13 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             );
             match core.run(get_future) {
                 Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(result) => println!("{:?}", result),
+                Ok(result) => {
+                    if get_opts.noline {
+                        print!("{:?}", render_secret(result.credential_value))
+                    } else {
+                        println!("{:?}", render_secret(result.credential_value))
+                    }
+                }
             }
         }
         Action::GetAll(get_opts) => {
@@ -258,17 +268,17 @@ impl CredstashApp {
                  not set, the value `credential-store` will be used",
             );
 
-        let profile_arg = Arg::with_name("profile")
-            .long("profile")
-            .short("p")
-            .value_name("PROFILE")
-            .help("Boto config profile to use when connecting to AWS");
+        // let profile_arg = Arg::with_name("profile")
+        //     .long("profile")
+        //     .short("p")
+        //     .value_name("PROFILE")
+        //     .help("Boto config profile to use when connecting to AWS");
 
-        let arn_arg = Arg::with_name("arn")
-            .long("arn")
-            .short("n")
-            .value_name("ARN")
-            .help("AWS IAM ARN for AssumeRole");
+        // let arn_arg = Arg::with_name("arn")
+        //     .long("arn")
+        //     .short("n")
+        //     .value_name("ARN")
+        //     .help("AWS IAM ARN for AssumeRole");
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
@@ -316,19 +326,18 @@ impl CredstashApp {
             .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
         let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
-
         let app = app
             .arg(region_arg)
             .arg(table_arg)
-            .arg(profile_arg)
-            .arg(arn_arg)
+            // .arg(profile_arg)
+            // .arg(arn_arg)
             .subcommand(del_command)
             .subcommand(get_command)
             .subcommand(get_all_command)
             .subcommand(keys_command)
             .subcommand(list_command)
             .subcommand(put_command)
-            .subcommand(put_all_command)
+            // .subcommand(put_all_command)
             .subcommand(setup_command);
         // extract the matches
         let matches: clap::ArgMatches = app.get_matches_from_safe(args)?;
@@ -458,11 +467,18 @@ impl CredstashApp {
             _ => unreachable!(),
         };
 
+        let table_name = {
+            match env::var("CREDSTASH_DEFAULT_TABLE ") {
+                Ok(val) => Some(val),
+                Err(_) => matches.value_of("table").map(|r| r.to_string())
+            }
+        };
+
         Ok(CredstashApp {
             region: region.map(|r| r.to_string()),
             aws_profile: matches.value_of("profile").map(|r| r.to_string()),
             iam_arn: matches.value_of("arn").map(|r| r.to_string()),
-            table_name: matches.value_of("table").map(|r| r.to_string()),
+            table_name,
             action: action_value,
         })
     }
@@ -523,7 +539,9 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
 
 fn main() {
     let app = CredstashApp::new();
-    println!("Hello, world {:?}", app);
-    let client = CredStashClient::new();
+    let region: Option<Region> = {
+        app.clone().region.map_or(Some(Region::default()), |item| Some(Region::from_str(&item).expect("Invalid region supplied")))
+    };
+    let client = CredStashClient::new(region);
     handle_action(app, client);
 }

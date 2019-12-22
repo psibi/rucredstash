@@ -3,9 +3,13 @@ extern crate futures;
 extern crate hex;
 extern crate rusoto_core;
 extern crate rusoto_dynamodb;
+extern crate rusoto_credential;
 extern crate tokio_core;
+extern crate rusoto_sts;
 
+use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
 use base64::{decode, encode, DecodeError};
+use rusoto_credential::DefaultCredentialsProvider;
 use bytes::Bytes;
 use core::convert::From;
 mod crypto;
@@ -39,6 +43,29 @@ use std::string::String;
 use std::vec::Vec;
 
 const PAD_LEN: usize = 19;
+
+pub fn create_credential(iam_arn: Option<String>) -> AWSCredential{
+    match iam_arn {
+        Some(arn) => {
+            // fix region
+        let sts = StsClient::new(Region::EuWest1);
+            let provider = StsAssumeRoleSessionCredentialsProvider::new(
+                sts,
+                arn,
+                "default".to_owned(),
+                None, None, None, None
+            );
+            AWSCredential::Sts(provider)
+        }
+        None => {
+            let default_provider = DefaultCredentialsProvider::new();
+            match default_provider {
+                Ok(credential) => AWSCredential::Default(credential),
+                Err(err) => panic!("Credential sourcing failed: {}", err)
+            }
+        }
+    }
+}
 
 fn put_helper(
     query_output: GenerateDataKeyResponse,
@@ -219,6 +246,11 @@ pub struct CredstashKey {
     pub comment: Option<String>,
 }
 
+pub enum AWSCredential {
+    Sts(StsAssumeRoleSessionCredentialsProvider),
+    Default(DefaultCredentialsProvider)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum CredStashClientError {
     NoKeyFound,
@@ -303,13 +335,14 @@ impl From<RusotoError<DecryptError>> for CredStashClientError {
 }
 
 impl CredStashClient {
-    pub fn new() -> Self {
-        Self::new_from()
+    pub fn new(region: Option<Region>) -> Self {
+        Self::new_from(region)
     }
 
-    fn new_from() -> CredStashClient {
-        let default_region = Region::default();
+    fn new_from(region: Option<Region>) -> CredStashClient {
+        let default_region = region.map_or(Region::default(), |item| item);
         let dynamo_client = DynamoDbClient::new(default_region.clone());
+
         let kms_client = KmsClient::new(default_region);
         CredStashClient {
             dynamo_client,
