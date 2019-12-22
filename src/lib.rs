@@ -24,7 +24,7 @@ use rusoto_dynamodb::{
     DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
     DynamoDb, DynamoDbClient, GetItemError, GetItemInput, KeySchemaElement, ProvisionedThroughput,
     PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError,
-    ScanInput, ScanOutput, Tag,
+    ScanInput, Tag,
 };
 use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
@@ -317,36 +317,39 @@ impl CredStashClient {
         }
     }
 
-    pub fn list_secrets(&self, table: String) -> Result<Vec<CredstashKey>, CredStashClientError> {
-        let mut last_eval_key = Some(HashMap::new());
-        let mut items = vec![];
-        while last_eval_key.is_some() {
+    pub fn list_secrets<'a>(&'a self, table_name: String) -> impl Future<Item=Vec<CredstashKey>, Error=CredStashClientError> + 'a {
+        let last_eval_key: Option<HashMap<String, AttributeValue>> = None;
+        loop_fn((last_eval_key, vec![]), move |(last_key, mut vec_key)| {
             let mut scan_query: ScanInput = Default::default();
-
             scan_query.projection_expression = Some("#n, version, #c".to_string());
 
             let mut attr_names = HashMap::new();
             attr_names.insert("#n".to_string(), "name".to_string());
             attr_names.insert("#c".to_string(), "comment".to_string());
             scan_query.expression_attribute_names = Some(attr_names);
-            scan_query.table_name = table.clone();
-            if last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
-                scan_query.exclusive_start_key = last_eval_key;
+            scan_query.table_name = table_name.clone();
+            if last_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
+                scan_query.exclusive_start_key = last_key;
             }
 
-            let result: ScanOutput = self.dynamo_client.scan(scan_query).sync()?;
-            let mut result_items = result.items.ok_or(CredStashClientError::AWSDynamoError(
-                "items value is empty".to_string(),
-            ))?;
-            items.append(&mut result_items);
-            last_eval_key = result.last_evaluated_key;
-        }
-        let res: Result<Vec<CredstashKey>, CredStashClientError> = items
-            .into_iter()
-            .map(|item| self.attribute_to_attribute_item(item))
-            .into_iter()
-            .collect();
-        res
+            self.dynamo_client.scan(scan_query).map_err(|err| From::from(err)).and_then(move |result| {
+                let result_items = result.items;
+                let mut test_vec: Vec<CredstashKey> = match result_items {
+                    Some(items) => {
+                        let new_vecs: Vec<CredstashKey> = items.into_iter().map(|elem| self.attribute_to_attribute_item(elem)).filter_map(|item| item.ok()).collect();
+                        new_vecs
+                    }
+                    None => vec![]
+                };
+                test_vec.append(&mut vec_key);
+                let cond = result.last_evaluated_key;
+                if cond.is_none() {
+                    Ok(Loop::Break(test_vec))
+                } else {
+                    Ok(Loop::Continue((cond, test_vec)))
+                }
+            })
+        })
     }
 
     fn attribute_to_attribute_item(
@@ -635,11 +638,8 @@ impl CredStashClient {
         version: Option<u64>,
     ) -> impl Future<Item = Vec<CredstashItem>, Error = CredStashClientError> + 'a {
         let table = table_name.clone();
-        let keys: Vec<CredstashKey> = match self.list_secrets(table) {
-            Ok(items) => items,
-            Err(_) => vec![],
-        };
-        let items: Vec<_> = keys
+        self.list_secrets(table).map_err(|err|From::from(err)).and_then(move |result| {
+            let items: Vec<_> = result
             .into_iter()
             .map(|item| {
                 self.get_secret(
@@ -653,7 +653,8 @@ impl CredStashClient {
                 .into_future()
             })
             .collect();
-        join_all(items)
+            join_all(items)
+        })
     }
 
     fn to_dynamo_result<'a>(

@@ -10,6 +10,7 @@ use futures::future::Future;
 use ring::hmac::Algorithm;
 use std::ffi::OsString;
 use std::io::Write;
+use std::io::Read;
 mod crypto;
 use either::Either;
 use ring;
@@ -102,6 +103,7 @@ fn get_table_name(table_name: Option<String>) -> String {
 
 fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
     let table_name = get_table_name(app.table_name);
+    let mut core = Core::new().unwrap();
     match app.action {
         Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
             let box_future: Box<dyn Future<Item = _, Error = _>> = match put_opts.version {
@@ -125,24 +127,22 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                     put_opts.digest_algorithm,
                 )),
             };
-            let mut core = Core::new().unwrap();
             match core.run(box_future) {
                 Ok(_) => println!("Item putten successfully"),
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
         Action::List => {
-            let result = client.list_secrets(table_name);
-            match result {
-                Err(err) => println!("Failure: {:?}", err),
-                Ok(val) => {
-                    let newval = val.clone();
+            let list_future = client.list_secrets(table_name);
+
+            match core.run(list_future) {
+                Ok(items) => {
                     let max_name_len: Vec<usize> =
-                        newval.into_iter().map(|item| item.name.len()).collect();
+                        items.clone().into_iter().map(|item| item.name.len()).collect();
                     let max_len = max_name_len
                         .iter()
                         .fold(1, |acc, x| if acc < *x { *x } else { acc });
-                    for item in val {
+                    for item in items {
                         println!(
                             "{:width$} -- version {: <10} --comment {}",
                             item.name,
@@ -152,11 +152,11 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                         )
                     }
                 }
+                Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
         Action::Delete(credential) => {
             let result = client.delete_secret(table_name, credential);
-            let mut core = Core::new().unwrap();
             match core.run(result) {
                 Ok(_) => println!("Item deleted"),
                 Err(err) => eprintln!("Failure: {:?}", err),
@@ -164,7 +164,6 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
         }
         Action::Setup(setup_opts) => {
             let result = client.create_db_table(table_name, setup_opts.tags);
-            let mut core = Core::new().unwrap();
             match core.run(result) {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(_val) => {
@@ -173,8 +172,8 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             }
         }
         Action::Keys => {
-            let result = client.list_secrets(table_name);
-            match result {
+            let list_future = client.list_secrets(table_name);
+            match core.run(list_future) {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(val) => {
                     for item in val {
@@ -184,7 +183,6 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             }
         }
         Action::Get(credential_name, encryption_context, get_opts) => {
-            let mut core = Core::new().unwrap();
             let get_future = client.get_secret(
                 table_name,
                 credential_name,
@@ -205,7 +203,6 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 .map(|opts| opts.encryption_context)
                 .map_or(None, |item| item);
             let get_future = client.get_all_secrets(table_name, encryption_context, version);
-            let mut core = Core::new().unwrap();
             match core.run(get_future) {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(val) => val
@@ -213,8 +210,8 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                     .map(|item| {
                         println!(
                             "fetched: {} val: {}",
-                            item.dynamo_name,
-                            render_secret(item.dynamo_contents)
+                            item.credential_name,
+                            render_secret(item.credential_value)
                         )
                     })
                     .collect(),
@@ -309,7 +306,7 @@ impl CredstashApp {
             .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
             .arg(Arg::with_name("key").short("k").long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::with_name("comment").short("c").long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
-            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))            
+            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
             .arg(Arg::with_name("autoversion").short("a").long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
             .arg(Arg::with_name("digest").short("d").long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).case_insensitive(true))
             .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").takes_value(false));
@@ -404,11 +401,10 @@ impl CredstashApp {
                         let stdout = io::stdout();
                         let mut std_handle = stdout.lock();
                         std_handle.flush().ok();
-                        // todo: trim newline
-                        // https://blog.v-gar.de/2019/04/rust-remove-trailing-newline-after-input/
                         io::stdin()
-                            .read_line(&mut value)
+                            .read_to_string(&mut value)
                             .expect("Failed to read from stdin");
+                        println!("Debug {}", value);
                     } else {
                         value = put_matches.value_of("value").unwrap().to_string();
                     }
