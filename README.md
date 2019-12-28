@@ -1,5 +1,13 @@
 # Rucredstash
 
+[![Crates.io][crates-badge]][crates-url]
+[![MIT licensed][mit-badge]][mit-url]
+
+[crates-badge]: https://img.shields.io/crates/v/credstash.svg
+[crates-url]: https://crates.io/crates/credstash
+[mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+[mit-url]: LICENSE
+
 Rucredstash is a Rust port of [CredStash](https://github.com/fugue/credstash)
 
 It uses a combination of AWS Key Management Service (KMS) and DynamoDB
