@@ -2,12 +2,16 @@ extern crate base64;
 extern crate futures;
 extern crate hex;
 extern crate rusoto_core;
+extern crate rusoto_credential;
 extern crate rusoto_dynamodb;
+extern crate rusoto_sts;
 extern crate tokio_core;
 
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use core::convert::From;
+use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
+use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
 mod crypto;
 pub use crate::crypto::credstash_crypto::Crypto;
 use futures::future;
@@ -18,7 +22,7 @@ use hex::FromHexError;
 use ring;
 use ring::hmac::{sign, Algorithm, Key};
 use rusoto_core::region::Region;
-use rusoto_core::RusotoError;
+use rusoto_core::{HttpClient, RusotoError};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
     DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
@@ -205,6 +209,8 @@ pub struct CredStashClient {
 pub struct CredstashItem {
     aes_key: Bytes,
     pub dynamo_hmac_key: Key,
+    /// Credential name which has been stored.
+    pub credential_name: String,
     /// Decrypted credential value. This corresponds with the `credential_name`.
     pub credential_value: Vec<u8>,
     /// HMAC Digest of the encrypted text
@@ -215,8 +221,6 @@ pub struct CredstashItem {
     pub version: String,
     /// Optional comment for the `CredstashItem`
     pub comment: Option<String>,
-    /// Credential name which has been stored.
-    pub credential_name: String,
 }
 
 /// Represents only the Credential without the decrypted text.
@@ -239,6 +243,7 @@ pub enum CredStashClientError {
     CredstashHexFailure(FromHexError),
     HMacMismatch,
     ParseError(String),
+    CredentialsError(String),
 }
 
 impl From<std::num::ParseIntError> for CredStashClientError {
@@ -313,22 +318,118 @@ impl From<RusotoError<DecryptError>> for CredStashClientError {
     }
 }
 
+impl From<CredentialsError> for CredStashClientError {
+    fn from(error: CredentialsError) -> Self {
+        CredStashClientError::CredentialsError(error.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CredStashCredential {
+    DefaultProfile(Option<String>),
+    DefaultCredentialsProvider,
+    DefaultAssumeRole((String, Option<(String, String)>)),
+}
+
 impl CredStashClient {
     /// Creates a new client backend. Note that this uses the default
     /// AWS credential provider and the tls client.
-    pub fn new(region: Option<Region>) -> Self {
-        Self::new_from(region)
+    pub fn new(
+        credential: CredStashCredential,
+        region: Option<Region>,
+    ) -> Result<CredStashClient, CredStashClientError> {
+        Self::new_from(credential, region)
     }
 
-    fn new_from(region: Option<Region>) -> CredStashClient {
+    fn new_from(
+        credential: CredStashCredential,
+        region: Option<Region>,
+    ) -> Result<CredStashClient, CredStashClientError> {
         let default_region = region.map_or(Region::default(), |item| item);
-        let dynamo_client = DynamoDbClient::new(default_region.clone());
-
-        let kms_client = KmsClient::new(default_region);
-        CredStashClient {
+        let provider = match credential {
+            CredStashCredential::DefaultCredentialsProvider => {
+                let provider = DefaultCredentialsProvider::new()?;
+                let provider2 = DefaultCredentialsProvider::new()?;
+                let dynamo_client = DynamoDbClient::new_with(
+                    HttpClient::new().unwrap(),
+                    provider,
+                    default_region.clone(),
+                );
+                let kms_client =
+                    KmsClient::new_with(HttpClient::new().unwrap(), provider2, default_region);
+                (dynamo_client, kms_client)
+            }
+            CredStashCredential::DefaultAssumeRole((assume_role_arn, mfa_field)) => {
+                let provider = DefaultCredentialsProvider::new()?;
+                let sts = StsClient::new_with(
+                    HttpClient::new().unwrap(),
+                    provider,
+                    default_region.clone(),
+                );
+                let mfa = match mfa_field.clone() {
+                    None => None,
+                    Some((mfa, _)) => Some(mfa),
+                };
+                let mut provider = StsAssumeRoleSessionCredentialsProvider::new(
+                    sts.clone(),
+                    assume_role_arn.clone(),
+                    "default".to_owned(),
+                    None,
+                    None,
+                    None,
+                    mfa.clone(),
+                );
+                let mut provider2 = StsAssumeRoleSessionCredentialsProvider::new(
+                    sts,
+                    assume_role_arn,
+                    "default".to_owned(),
+                    None,
+                    None,
+                    None,
+                    mfa,
+                );
+                match mfa_field {
+                    None => (),
+                    Some((_, code)) => {
+                        provider.set_mfa_code(code.clone());
+                        provider2.set_mfa_code(code);
+                    }
+                }
+                let dynamo_client = DynamoDbClient::new_with(
+                    HttpClient::new().unwrap(),
+                    provider,
+                    default_region.clone(),
+                );
+                let kms_client =
+                    KmsClient::new_with(HttpClient::new().unwrap(), provider2, default_region);
+                (dynamo_client, kms_client)
+            }
+            CredStashCredential::DefaultProfile(profile) => {
+                let mut provider = ProfileProvider::new()?;
+                let mut provider2 = ProfileProvider::new()?;
+                match profile {
+                    None => (),
+                    Some(pr) => {
+                        provider.set_profile(pr.clone());
+                        provider2.set_profile(pr);
+                    }
+                }
+                let dynamo_client = DynamoDbClient::new_with(
+                    HttpClient::new().unwrap(),
+                    provider,
+                    default_region.clone(),
+                );
+                let kms_client =
+                    KmsClient::new_with(HttpClient::new().unwrap(), provider2, default_region);
+                (dynamo_client, kms_client)
+            }
+        };
+        println!("success init");
+        let (dynamo_client, kms_client) = provider;
+        Ok(CredStashClient {
             dynamo_client,
             kms_client,
-        }
+        })
     }
 
     /// Returns all the Credential name stored in the DynamoDB table.
@@ -337,7 +438,10 @@ impl CredStashClient {
     ///
     /// * `table_name`: The name of the table from which to list `CredstashKey`
     ///
-    pub fn list_secrets<'a>(&'a self, table_name: String) -> impl Future<Item=Vec<CredstashKey>, Error=CredStashClientError> + 'a {
+    pub fn list_secrets<'a>(
+        &'a self,
+        table_name: String,
+    ) -> impl Future<Item = Vec<CredstashKey>, Error = CredStashClientError> + 'a {
         let last_eval_key: Option<HashMap<String, AttributeValue>> = None;
         loop_fn((last_eval_key, vec![]), move |(last_key, mut vec_key)| {
             let mut scan_query: ScanInput = Default::default();
@@ -352,23 +456,30 @@ impl CredStashClient {
                 scan_query.exclusive_start_key = last_key;
             }
 
-            self.dynamo_client.scan(scan_query).map_err(|err| From::from(err)).and_then(move |result| {
-                let result_items = result.items;
-                let mut test_vec: Vec<CredstashKey> = match result_items {
-                    Some(items) => {
-                        let new_vecs: Vec<CredstashKey> = items.into_iter().map(|elem| self.attribute_to_attribute_item(elem)).filter_map(|item| item.ok()).collect();
-                        new_vecs
+            self.dynamo_client
+                .scan(scan_query)
+                .map_err(|err| From::from(err))
+                .and_then(move |result| {
+                    let result_items = result.items;
+                    let mut test_vec: Vec<CredstashKey> = match result_items {
+                        Some(items) => {
+                            let new_vecs: Vec<CredstashKey> = items
+                                .into_iter()
+                                .map(|elem| self.attribute_to_attribute_item(elem))
+                                .filter_map(|item| item.ok())
+                                .collect();
+                            new_vecs
+                        }
+                        None => vec![],
+                    };
+                    test_vec.append(&mut vec_key);
+                    let cond = result.last_evaluated_key;
+                    if cond.is_none() {
+                        Ok(Loop::Break(test_vec))
+                    } else {
+                        Ok(Loop::Continue((cond, test_vec)))
                     }
-                    None => vec![]
-                };
-                test_vec.append(&mut vec_key);
-                let cond = result.last_evaluated_key;
-                if cond.is_none() {
-                    Ok(Loop::Break(test_vec))
-                } else {
-                    Ok(Loop::Continue((cond, test_vec)))
-                }
-            })
+                })
         })
     }
 
@@ -510,7 +621,8 @@ impl CredStashClient {
         &'a self,
         table_name: String,
         credential: String,
-    ) -> impl Future<Item = Vec<HashMap<String, AttributeValue>>, Error = CredStashClientError> + 'a {
+    ) -> impl Future<Item = Vec<HashMap<String, AttributeValue>>, Error = CredStashClientError> + 'a
+    {
         let last_eval_key: Option<HashMap<String, AttributeValue>> = None;
         loop_fn((last_eval_key, vec![]), move |(last_key, mut vec_key)| {
             let mut query: QueryInput = Default::default();
@@ -533,19 +645,22 @@ impl CredStashClient {
             if last_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
                 query.exclusive_start_key = last_key;
             }
-            self.dynamo_client.query(query).map_err(|err| From::from(err)).and_then(move |result|  {
-                let mut test_vec = match result.items {
-                    Some(items) => items,
-                    None => vec![]
-                };
-                test_vec.append(&mut vec_key);
-                let cond = result.last_evaluated_key;
-                if cond.is_none() {
-                    Ok(Loop::Break(test_vec))
-                } else {
-                    Ok(Loop::Continue((cond, test_vec)))
-                }
-            })
+            self.dynamo_client
+                .query(query)
+                .map_err(|err| From::from(err))
+                .and_then(move |result| {
+                    let mut test_vec = match result.items {
+                        Some(items) => items,
+                        None => vec![],
+                    };
+                    test_vec.append(&mut vec_key);
+                    let cond = result.last_evaluated_key;
+                    if cond.is_none() {
+                        Ok(Loop::Break(test_vec))
+                    } else {
+                        Ok(Loop::Continue((cond, test_vec)))
+                    }
+                })
         })
     }
 
@@ -561,21 +676,25 @@ impl CredStashClient {
         table_name: String,
         credential_name: String,
     ) -> impl Future<Item = Vec<DeleteItemOutput>, Error = CredStashClientError> + 'a {
-        self.get_items(table_name.clone(), credential_name).map_err(|err| From::from(err)).and_then(move |result| {
-            let mut del_query: DeleteItemInput = Default::default();
-            del_query.table_name = table_name;
-            let items: Vec<_> = result.into_iter().map(|item| {
-                let mut delq = del_query.clone();
-                delq.key = item.clone();
-                self
-                    .dynamo_client
-                    .delete_item(delq)
-                    .map_err(|err| From::from(err))
-                    .and_then(|delete_output| Ok(delete_output))
-                    .into_future()
-            }).collect();
-            join_all(items)
-        })
+        self.get_items(table_name.clone(), credential_name)
+            .map_err(|err| From::from(err))
+            .and_then(move |result| {
+                let mut del_query: DeleteItemInput = Default::default();
+                del_query.table_name = table_name;
+                let items: Vec<_> = result
+                    .into_iter()
+                    .map(|item| {
+                        let mut delq = del_query.clone();
+                        delq.key = item.clone();
+                        self.dynamo_client
+                            .delete_item(delq)
+                            .map_err(|err| From::from(err))
+                            .and_then(|delete_output| Ok(delete_output))
+                            .into_future()
+                    })
+                    .collect();
+                join_all(items)
+            })
     }
 
     /// Inserts new credential in the DynamoDB table.
@@ -727,23 +846,25 @@ impl CredStashClient {
         version: Option<u64>,
     ) -> impl Future<Item = Vec<CredstashItem>, Error = CredStashClientError> + 'a {
         let table = table_name.clone();
-        self.list_secrets(table).map_err(|err|From::from(err)).and_then(move |result| {
-            let items: Vec<_> = result
-            .into_iter()
-            .map(|item| {
-                self.get_secret(
-                    table_name.clone(),
-                    item.name,
-                    encryption_context.clone(),
-                    version,
-                )
-                .map_err(|err| From::from(err))
-                .and_then(|result| Ok(result))
-                .into_future()
+        self.list_secrets(table)
+            .map_err(|err| From::from(err))
+            .and_then(move |result| {
+                let items: Vec<_> = result
+                    .into_iter()
+                    .map(|item| {
+                        self.get_secret(
+                            table_name.clone(),
+                            item.name,
+                            encryption_context.clone(),
+                            version,
+                        )
+                        .map_err(|err| From::from(err))
+                        .and_then(|result| Ok(result))
+                        .into_future()
+                    })
+                    .collect();
+                join_all(items)
             })
-            .collect();
-            join_all(items)
-        })
     }
 
     fn to_dynamo_result<'a>(

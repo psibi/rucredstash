@@ -2,13 +2,13 @@
 
 Rucredstash is a Rust port of [CredStash](https://github.com/fugue/credstash)
 
-It uses a comination of AWS Key Management Service (KMS) and DynamoDB
+It uses a combination of AWS Key Management Service (KMS) and DynamoDB
 to store secrets. This is needed when you want to store and retrieve
 your credentials (like database password, API Keys etc) securely. A
 more [detailed
 tutorial](https://www.fpcomplete.com/blog/2017/08/credstash) is here.
 
-This package offers the interface via both CLI and an libray way of
+This package offers the interface via both CLI and an library way of
 accessing it.
 
 ## Usage
@@ -44,3 +44,17 @@ SUBCOMMANDS:
     put       Put a credential from the store
     setup     setup the credential store
 ```
+
+## Usage Examples
+
+Note that `rucredstash` by default uses
+[DefaultCredentialsProvider](https://docs.rs/rusoto_credential/0.42.0/rusoto_credential/struct.DefaultCredentialsProvider.html),
+so your credentials will be based on that. Since I have various [named profiles](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-profiles.html) for my AWS credential, let me set the proper [environment variable](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html), so that it uses corresponding credentials.
+
+$ export AWS_ACCESS_KEY_ID=AKIA3OONE5CPPMCGOEEL
+$ export AWS_SECRET_ACCESS_KEY=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
+$ 
+./target/debug/rucredstash --arn arn:aws:iam::786946123934:role/admin --mfa_serial arn:aws:iam::786946123934:mfa/sibi --region us-west-2 list
+./target/debug/rucredstash --arn arn:aws:iam::786946123934:role/admin --mfa_serial arn:aws:iam::786946123934:mfa/sibi list
+
+credstash --

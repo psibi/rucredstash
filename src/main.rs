@@ -5,15 +5,15 @@ extern crate futures;
 extern crate tokio_core;
 
 use clap::{App, Arg, SubCommand};
-use credstash::CredStashClient;
-use std::env;
-use rusoto_core::region::Region;
+use credstash::{CredStashClient, CredStashCredential};
 use futures::future::Future;
 use ring::hmac::Algorithm;
-use std::str::FromStr;
+use rusoto_core::region::Region;
+use std::env;
 use std::ffi::OsString;
-use std::io::Write;
 use std::io::Read;
+use std::io::Write;
+use std::str::FromStr;
 mod crypto;
 use either::Either;
 use ring;
@@ -29,9 +29,8 @@ use tokio_core::reactor::Core;
 #[derive(Debug, PartialEq, Clone)]
 struct CredstashApp {
     region: Option<String>,
-    aws_profile: Option<String>,
     table_name: Option<String>,
-    iam_arn: Option<String>,
+    credential: CredStashCredential,
     action: Action,
 }
 
@@ -140,8 +139,11 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
 
             match core.run(list_future) {
                 Ok(items) => {
-                    let max_name_len: Vec<usize> =
-                        items.clone().into_iter().map(|item| item.name.len()).collect();
+                    let max_name_len: Vec<usize> = items
+                        .clone()
+                        .into_iter()
+                        .map(|item| item.name.len())
+                        .collect();
                     let max_len = max_name_len
                         .iter()
                         .fold(1, |acc, x| if acc < *x { *x } else { acc });
@@ -267,17 +269,26 @@ impl CredstashApp {
                  not set, the value `credential-store` will be used",
             );
 
-        // let profile_arg = Arg::with_name("profile")
-        //     .long("profile")
-        //     .short("p")
-        //     .value_name("PROFILE")
-        //     .help("Boto config profile to use when connecting to AWS");
+        let profile_arg = Arg::with_name("profile")
+            .long("profile")
+            .short("p")
+            .value_name("PROFILE")
+            .help("Boto config profile to use when connecting to AWS");
 
-        // let arn_arg = Arg::with_name("arn")
-        //     .long("arn")
-        //     .short("n")
-        //     .value_name("ARN")
-        //     .help("AWS IAM ARN for AssumeRole");
+        let arn_arg = Arg::with_name("arn")
+            .long("arn")
+            .short("n")
+            .value_name("ARN")
+            .help("AWS IAM ARN for AssumeRole")
+            .requires("mfa")
+            .conflicts_with("profile");
+
+        let mfa_arg = Arg::with_name("mfa")
+            .long("mfa_serial")
+            .short("m")
+            .value_name("MFA_SERIAL")
+            .help("Optional MFA hardware device serial number or virtual device ARN")
+            .conflicts_with("profile");
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
@@ -328,8 +339,9 @@ impl CredstashApp {
         let app = app
             .arg(region_arg)
             .arg(table_arg)
-            // .arg(profile_arg)
-            // .arg(arn_arg)
+            .arg(profile_arg)
+            .arg(arn_arg)
+            .arg(mfa_arg)
             .subcommand(del_command)
             .subcommand(get_command)
             .subcommand(get_all_command)
@@ -469,14 +481,40 @@ impl CredstashApp {
         let table_name = {
             match env::var("CREDSTASH_DEFAULT_TABLE ") {
                 Ok(val) => Some(val),
-                Err(_) => matches.value_of("table").map(|r| r.to_string())
+                Err(_) => matches.value_of("table").map(|r| r.to_string()),
             }
         };
-
+        println!("Debug: 0");
+        let mfa = matches.value_of("mfa").map(|r| {
+            print!("Enter MFA Code (Use Ctrl-D to register EOF): ");
+            let mut value = String::new();
+            let stdout = io::stdout();
+            let mut std_handle = stdout.lock();
+            std_handle.flush().ok();
+            io::stdin()
+                .read_to_string(&mut value)
+                .expect("Failed to read from stdin");
+            println!("Deubg: {}", value);
+            (r.to_string(), value)
+        });
+        println!("Debug: 1");
+        let credential_type = {
+            let assume_role = matches
+                .value_of("arn")
+                .map(|r| CredStashCredential::DefaultAssumeRole((r.to_string(), mfa)));
+            let profile_cred = matches
+                .value_of("profile")
+                .map(|r| CredStashCredential::DefaultProfile(Some(r.to_string())));
+            match (assume_role, profile_cred) {
+                (Some(cred), _) => cred,
+                (_, Some(cred)) => cred,
+                _ => CredStashCredential::DefaultCredentialsProvider,
+            }
+        };
+        println!("Debug: 2");
         Ok(CredstashApp {
             region: region.map(|r| r.to_string()),
-            aws_profile: matches.value_of("profile").map(|r| r.to_string()),
-            iam_arn: matches.value_of("arn").map(|r| r.to_string()),
+            credential: credential_type,
             table_name,
             action: action_value,
         })
@@ -539,8 +577,10 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
 fn main() {
     let app = CredstashApp::new();
     let region: Option<Region> = {
-        app.clone().region.map_or(Some(Region::default()), |item| Some(Region::from_str(&item).expect("Invalid region supplied")))
+        app.clone().region.map_or(Some(Region::default()), |item| {
+            Some(Region::from_str(&item).expect("Invalid region supplied"))
+        })
     };
-    let client = CredStashClient::new(region);
+    let client = CredStashClient::new(app.credential.clone(), region).unwrap();
     handle_action(app, client);
 }
