@@ -76,7 +76,7 @@ Todo: Test the above with encryption context, different versions.
 
 ## Things to do in Future version
 
-* A way to provide credentials for the API
+* get_all should support exporting in JSON/CSV/Dotenv and Yaml formats.
 * async/await
 
 ## Reference

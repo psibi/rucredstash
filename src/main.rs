@@ -9,6 +9,8 @@ use credstash::{CredStashClient, CredStashCredential};
 use futures::future::Future;
 use ring::hmac::Algorithm;
 use rusoto_core::region::Region;
+use rusoto_dynamodb::AttributeValue;
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::io::Write;
@@ -22,8 +24,6 @@ use std::str;
 use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
-
-// todo: check output of all command in cli
 
 #[derive(Debug, PartialEq, Clone)]
 struct CredstashApp {
@@ -160,9 +160,17 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             }
         }
         Action::Delete(credential) => {
-            let result = client.delete_secret(table_name, credential);
+            let result = client.delete_secret(table_name, credential.clone());
             match core.run(result) {
-                Ok(_) => println!("Item deleted"),
+                Ok(items) => {
+                    for item in items {
+                        println!(
+                            "Deleting {} {}",
+                            credential,
+                            render_version(item.attributes)
+                        );
+                    }
+                }
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
@@ -197,9 +205,9 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(result) => {
                     if get_opts.noline {
-                        print!("{:?}", render_secret(result.credential_value))
+                        print!("{}", render_secret(result.credential_value))
                     } else {
-                        println!("{:?}", render_secret(result.credential_value))
+                        println!("{}", render_secret(result.credential_value))
                     }
                 }
             }
@@ -276,7 +284,7 @@ impl CredstashApp {
 
         let arn_arg = Arg::with_name("arn")
             .long("arn")
-            .short("n")
+            .short("a")
             .value_name("ARN")
             .help("AWS IAM ARN for AssumeRole")
             .requires("mfa")
@@ -566,6 +574,17 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
             None
         }
     }
+}
+
+fn render_version(item: Option<HashMap<String, AttributeValue>>) -> String {
+    item.map_or("".to_string(), |hmap| {
+        hmap.get("version").map_or("".to_string(), |version| {
+            version
+                .s
+                .as_ref()
+                .map_or("".to_string(), |ver| format!("--version {}", ver))
+        })
+    })
 }
 
 fn main() {

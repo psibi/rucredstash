@@ -680,6 +680,7 @@ impl CredStashClient {
             .and_then(move |result| {
                 let mut del_query: DeleteItemInput = Default::default();
                 del_query.table_name = table_name;
+                del_query.return_values = Some("ALL_OLD".to_string());
                 let items: Vec<_> = result
                     .into_iter()
                     .map(|item| {
