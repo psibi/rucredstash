@@ -424,7 +424,6 @@ impl CredStashClient {
                 (dynamo_client, kms_client)
             }
         };
-        println!("success init");
         let (dynamo_client, kms_client) = provider;
         Ok(CredStashClient {
             dynamo_client,

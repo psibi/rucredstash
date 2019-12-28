@@ -11,7 +11,6 @@ use ring::hmac::Algorithm;
 use rusoto_core::region::Region;
 use std::env;
 use std::ffi::OsString;
-use std::io::Read;
 use std::io::Write;
 use std::str::FromStr;
 mod crypto;
@@ -331,9 +330,9 @@ impl CredstashApp {
             .arg(Arg::with_name("digest").short("d").long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).case_insensitive(true))
             .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").takes_value(false));
 
-        let put_all_command = SubCommand::with_name("putall")
-            .about("Put credentials from json into the store")
-            .arg(Arg::with_name("secret").help("The secret to retrieve"));
+        // let put_all_command = SubCommand::with_name("putall")
+        //     .about("Put credentials from json into the store")
+        //     .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
         let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
         let app = app
@@ -422,13 +421,12 @@ impl CredstashApp {
                         let mut std_handle = stdout.lock();
                         std_handle.flush().ok();
                         io::stdin()
-                            .read_to_string(&mut value)
+                            .read_line(&mut value)
                             .expect("Failed to read from stdin");
-                        println!("Debug {}", value);
                     } else {
                         value = put_matches.value_of("value").unwrap().to_string();
                     }
-                    value
+                    value.trim().to_string()
                 };
                 let key_id = put_matches.value_of("key").map(|e| e.to_string());
                 let comment = put_matches.value_of("comment").map(|e| e.to_string());
@@ -484,20 +482,17 @@ impl CredstashApp {
                 Err(_) => matches.value_of("table").map(|r| r.to_string()),
             }
         };
-        println!("Debug: 0");
         let mfa = matches.value_of("mfa").map(|r| {
-            print!("Enter MFA Code (Use Ctrl-D to register EOF): ");
+            print!("Enter MFA Code: ");
             let mut value = String::new();
             let stdout = io::stdout();
             let mut std_handle = stdout.lock();
             std_handle.flush().ok();
             io::stdin()
-                .read_to_string(&mut value)
+                .read_line(&mut value)
                 .expect("Failed to read from stdin");
-            println!("Deubg: {}", value);
-            (r.to_string(), value)
+            (r.to_string(), value.trim().to_string())
         });
-        println!("Debug: 1");
         let credential_type = {
             let assume_role = matches
                 .value_of("arn")
@@ -511,7 +506,6 @@ impl CredstashApp {
                 _ => CredStashCredential::DefaultCredentialsProvider,
             }
         };
-        println!("Debug: 2");
         Ok(CredstashApp {
             region: region.map(|r| r.to_string()),
             credential: credential_type,
