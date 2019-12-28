@@ -120,7 +120,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 )),
                 Either::Right(_) => Box::new(client.put_secret_auto_version(
                     table_name,
-                    credential_name,
+                    credential_name.clone(),
                     credential_value,
                     put_opts.key_id,
                     encryption_context,
@@ -129,7 +129,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 )),
             };
             match core.run(box_future) {
-                Ok(_) => println!("Item putten successfully"),
+                Ok(_) => println!("{} has been stored", credential_name),
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
