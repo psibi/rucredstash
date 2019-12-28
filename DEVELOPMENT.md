@@ -2,9 +2,9 @@
 
 ## Default values
 
-table: `credential-store`
-key: `alias/credstash`
-Default digest algorithm: `SHA256`
+* table: `credential-store`
+* key: `alias/credstash`
+* Default digest algorithm: `SHA256`
 
 ## Implementation notes
 
@@ -70,14 +70,32 @@ We try to stay close to the behavior of credstash as much as possible.
 {
     "hello": "world"
 }
+~/g/rucredstash (v2-release) $ aws-env credstash get hellehllobyegood
+dam
+~/g/rucredstash (v2-release) $ aws-env credstash keys
+hellehllobyegood
+~/g/rucredstash (v2-release) $ aws-env credstash list
+hellehllobyegood -- version 0000000000000000001 -- comment
+~/g/rucredstash (v2-release) $ aws-env credstash put hello world
+hello has been stored
 ```
 
 Todo: Test the above with encryption context, different versions.
 
-## Things to do in Future version
+## Future TODOs
 
-* A way to provide credentials for the API
+* UX of get subcommand should be changed.
+* get_all should support exporting in JSON/CSV/Dotenv and Yaml formats.
+* putall subcommand
+  - I dislike the default behavior of credstash. So this is one place
+    where our behavior will diverge.
+* Rename dynamo_hmac_key field
+* Documentation for CredStashCredential
+* Fix tests
+* CI/CD
+* Support downloading executables from three platforms
 * async/await
+* Remove warnings
 
 ## Reference
 

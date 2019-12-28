@@ -5,15 +5,16 @@ extern crate futures;
 extern crate tokio_core;
 
 use clap::{App, Arg, SubCommand};
-use credstash::CredStashClient;
-use std::env;
-use rusoto_core::region::Region;
+use credstash::{CredStashClient, CredStashCredential};
 use futures::future::Future;
 use ring::hmac::Algorithm;
-use std::str::FromStr;
+use rusoto_core::region::Region;
+use rusoto_dynamodb::AttributeValue;
+use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
 use std::io::Write;
-use std::io::Read;
+use std::str::FromStr;
 mod crypto;
 use either::Either;
 use ring;
@@ -24,14 +25,11 @@ use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
 
-// todo: check output of all command in cli
-
 #[derive(Debug, PartialEq, Clone)]
 struct CredstashApp {
     region: Option<String>,
-    aws_profile: Option<String>,
     table_name: Option<String>,
-    iam_arn: Option<String>,
+    credential: CredStashCredential,
     action: Action,
 }
 
@@ -122,7 +120,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 )),
                 Either::Right(_) => Box::new(client.put_secret_auto_version(
                     table_name,
-                    credential_name,
+                    credential_name.clone(),
                     credential_value,
                     put_opts.key_id,
                     encryption_context,
@@ -131,7 +129,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 )),
             };
             match core.run(box_future) {
-                Ok(_) => println!("Item putten successfully"),
+                Ok(_) => println!("{} has been stored", credential_name),
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
@@ -140,8 +138,11 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
 
             match core.run(list_future) {
                 Ok(items) => {
-                    let max_name_len: Vec<usize> =
-                        items.clone().into_iter().map(|item| item.name.len()).collect();
+                    let max_name_len: Vec<usize> = items
+                        .clone()
+                        .into_iter()
+                        .map(|item| item.name.len())
+                        .collect();
                     let max_len = max_name_len
                         .iter()
                         .fold(1, |acc, x| if acc < *x { *x } else { acc });
@@ -159,9 +160,17 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             }
         }
         Action::Delete(credential) => {
-            let result = client.delete_secret(table_name, credential);
+            let result = client.delete_secret(table_name, credential.clone());
             match core.run(result) {
-                Ok(_) => println!("Item deleted"),
+                Ok(items) => {
+                    for item in items {
+                        println!(
+                            "Deleting {} {}",
+                            credential,
+                            render_version(item.attributes)
+                        );
+                    }
+                }
                 Err(err) => eprintln!("Failure: {:?}", err),
             }
         }
@@ -196,9 +205,9 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 Err(err) => eprintln!("Failure: {:?}", err),
                 Ok(result) => {
                     if get_opts.noline {
-                        print!("{:?}", render_secret(result.credential_value))
+                        print!("{}", render_secret(result.credential_value))
                     } else {
-                        println!("{:?}", render_secret(result.credential_value))
+                        println!("{}", render_secret(result.credential_value))
                     }
                 }
             }
@@ -267,17 +276,26 @@ impl CredstashApp {
                  not set, the value `credential-store` will be used",
             );
 
-        // let profile_arg = Arg::with_name("profile")
-        //     .long("profile")
-        //     .short("p")
-        //     .value_name("PROFILE")
-        //     .help("Boto config profile to use when connecting to AWS");
+        let profile_arg = Arg::with_name("profile")
+            .long("profile")
+            .short("p")
+            .value_name("PROFILE")
+            .help("Boto config profile to use when connecting to AWS");
 
-        // let arn_arg = Arg::with_name("arn")
-        //     .long("arn")
-        //     .short("n")
-        //     .value_name("ARN")
-        //     .help("AWS IAM ARN for AssumeRole");
+        let arn_arg = Arg::with_name("arn")
+            .long("arn")
+            .short("a")
+            .value_name("ARN")
+            .help("AWS IAM ARN for AssumeRole")
+            .requires("mfa")
+            .conflicts_with("profile");
+
+        let mfa_arg = Arg::with_name("mfa")
+            .long("mfa_serial")
+            .short("m")
+            .value_name("MFA_SERIAL")
+            .help("Optional MFA hardware device serial number or virtual device ARN")
+            .conflicts_with("profile");
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
@@ -320,16 +338,17 @@ impl CredstashApp {
             .arg(Arg::with_name("digest").short("d").long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).case_insensitive(true))
             .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").takes_value(false));
 
-        let put_all_command = SubCommand::with_name("putall")
-            .about("Put credentials from json into the store")
-            .arg(Arg::with_name("secret").help("The secret to retrieve"));
+        // let put_all_command = SubCommand::with_name("putall")
+        //     .about("Put credentials from json into the store")
+        //     .arg(Arg::with_name("secret").help("The secret to retrieve"));
 
         let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
         let app = app
             .arg(region_arg)
             .arg(table_arg)
-            // .arg(profile_arg)
-            // .arg(arn_arg)
+            .arg(profile_arg)
+            .arg(arn_arg)
+            .arg(mfa_arg)
             .subcommand(del_command)
             .subcommand(get_command)
             .subcommand(get_all_command)
@@ -410,13 +429,12 @@ impl CredstashApp {
                         let mut std_handle = stdout.lock();
                         std_handle.flush().ok();
                         io::stdin()
-                            .read_to_string(&mut value)
+                            .read_line(&mut value)
                             .expect("Failed to read from stdin");
-                        println!("Debug {}", value);
                     } else {
                         value = put_matches.value_of("value").unwrap().to_string();
                     }
-                    value
+                    value.trim().to_string()
                 };
                 let key_id = put_matches.value_of("key").map(|e| e.to_string());
                 let comment = put_matches.value_of("comment").map(|e| e.to_string());
@@ -469,14 +487,36 @@ impl CredstashApp {
         let table_name = {
             match env::var("CREDSTASH_DEFAULT_TABLE ") {
                 Ok(val) => Some(val),
-                Err(_) => matches.value_of("table").map(|r| r.to_string())
+                Err(_) => matches.value_of("table").map(|r| r.to_string()),
             }
         };
-
+        let mfa = matches.value_of("mfa").map(|r| {
+            print!("Enter MFA Code: ");
+            let mut value = String::new();
+            let stdout = io::stdout();
+            let mut std_handle = stdout.lock();
+            std_handle.flush().ok();
+            io::stdin()
+                .read_line(&mut value)
+                .expect("Failed to read from stdin");
+            (r.to_string(), value.trim().to_string())
+        });
+        let credential_type = {
+            let assume_role = matches
+                .value_of("arn")
+                .map(|r| CredStashCredential::DefaultAssumeRole((r.to_string(), mfa)));
+            let profile_cred = matches
+                .value_of("profile")
+                .map(|r| CredStashCredential::DefaultProfile(Some(r.to_string())));
+            match (assume_role, profile_cred) {
+                (Some(cred), _) => cred,
+                (_, Some(cred)) => cred,
+                _ => CredStashCredential::DefaultCredentialsProvider,
+            }
+        };
         Ok(CredstashApp {
             region: region.map(|r| r.to_string()),
-            aws_profile: matches.value_of("profile").map(|r| r.to_string()),
-            iam_arn: matches.value_of("arn").map(|r| r.to_string()),
+            credential: credential_type,
             table_name,
             action: action_value,
         })
@@ -536,11 +576,24 @@ fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
     }
 }
 
+fn render_version(item: Option<HashMap<String, AttributeValue>>) -> String {
+    item.map_or("".to_string(), |hmap| {
+        hmap.get("version").map_or("".to_string(), |version| {
+            version
+                .s
+                .as_ref()
+                .map_or("".to_string(), |ver| format!("--version {}", ver))
+        })
+    })
+}
+
 fn main() {
     let app = CredstashApp::new();
     let region: Option<Region> = {
-        app.clone().region.map_or(Some(Region::default()), |item| Some(Region::from_str(&item).expect("Invalid region supplied")))
+        app.clone().region.map_or(Some(Region::default()), |item| {
+            Some(Region::from_str(&item).expect("Invalid region supplied"))
+        })
     };
-    let client = CredStashClient::new(region);
+    let client = CredStashClient::new(app.credential.clone(), region).unwrap();
     handle_action(app, client);
 }

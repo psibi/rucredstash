@@ -1,15 +1,18 @@
 extern crate credstash;
 
-use credstash::CredStashClient;
+use credstash::{CredStashClient, CredStashCredential};
 use ring;
 use std::str;
 use tokio_core::reactor::Core;
+
+// This test assumes you have already have an AWS infrastructure running.
+// Both table and the KMS key should be present for the test to pass.
 
 #[test]
 fn credstash_basic_workflow() {
     // put credential
     let table_name = "credential-store".to_string();
-    let app = CredStashClient::new(None);
+    let app = CredStashClient::new(CredStashCredential::DefaultCredentialsProvider, None).unwrap();
     let mut core = Core::new().unwrap();
     let put_future = app.put_secret(
         table_name.clone(),
@@ -26,12 +29,7 @@ fn credstash_basic_workflow() {
     assert!(result.is_ok());
 
     // get credential
-    let get_future = app.get_secret(
-        table_name.clone(),
-        "hello12".to_string(),
-        None,
-        None
-    );
+    let get_future = app.get_secret(table_name.clone(), "hello12".to_string(), None, None);
     let result = core.run(get_future).unwrap();
     let secret_utf8 = str::from_utf8(&result.credential_value).unwrap();
     assert_eq!("world12".to_string(), secret_utf8);
