@@ -2,6 +2,7 @@ extern crate base64;
 extern crate clap;
 extern crate either;
 extern crate futures;
+extern crate serde_json;
 extern crate tokio_core;
 
 use clap::{App, Arg, SubCommand};
@@ -10,6 +11,8 @@ use futures::future::Future;
 use ring::hmac::Algorithm;
 use rusoto_core::region::Region;
 use rusoto_dynamodb::AttributeValue;
+use serde_json::map::Map;
+use serde_json::{to_string_pretty, Value};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -223,16 +226,19 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             let get_future = client.get_all_secrets(table_name, encryption_context, version);
             match core.run(get_future) {
                 Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(val) => val
-                    .into_iter()
-                    .map(|item| {
-                        println!(
-                            "fetched: {} val: {}",
-                            item.credential_name,
-                            render_secret(item.credential_value)
-                        )
-                    })
-                    .collect(),
+                Ok(val) => {
+                    let items: Map<_, _> = val
+                        .into_iter()
+                        .map(|item| {
+                            (
+                                item.credential_name,
+                                Value::String(render_secret(item.credential_value)),
+                            )
+                        })
+                        .collect();
+                    let result = to_string_pretty(&Value::Object(items)).unwrap();
+                    println!("{}", result);
+                }
             }
         }
     }

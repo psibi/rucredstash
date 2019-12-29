@@ -84,8 +84,6 @@ Todo: Test the above with encryption context, different versions.
 
 ## Future TODOs
 
-* Upstream changes to rusoto based on the work here.
-* UX of get subcommand should be changed.
 * get_all should support exporting in JSON/CSV/Dotenv and Yaml formats.
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
