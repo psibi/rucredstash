@@ -2,12 +2,14 @@
 
 set -eux
 
-cargo build --release
+
 
 rm -rf "${BUILD_BINARIESDIRECTORY}"
 mkdir "${BUILD_BINARIESDIRECTORY}"
 
 ls .
+
+cargo build --release
 
 if [[ -f "target/release/credstash.exe" ]]; then
   mv "target/release/credstash.exe" 
