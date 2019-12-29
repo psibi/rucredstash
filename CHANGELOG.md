@@ -1,3 +1,7 @@
+# v0.2.1
+
+* Fix release script
+
 # v0.2.0
 
 * Add various credential support. Previously this was driven purely by aws-env.
