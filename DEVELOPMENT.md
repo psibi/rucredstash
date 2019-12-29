@@ -78,13 +78,25 @@ hellehllobyegood
 hellehllobyegood -- version 0000000000000000001 -- comment
 ~/g/rucredstash (v2-release) $ aws-env credstash put hello world
 hello has been stored
+~/g/rucredstash (master) $ aws-env credstash getall -f yaml
+[aws-env] Assuming role arn:aws:iam::786946123934:role/admin
+hellehllobyegood: dam
+hello: world
+hello1: world1
+~/g/rucredstash (master) $ aws-env credstash getall -f csv
+hellehllobyegood,dam
+hello1,world1
+hello,world
+~/g/rucredstash (master) $ aws-env credstash getall -f dotenv
+HELLEHLLOBYEGOOD='dam'
+HELLO='world'
+HELLO1='world1'
 ```
 
 Todo: Test the above with encryption context, different versions.
 
 ## Future TODOs
 
-* get_all should support exporting in JSON/CSV/Dotenv and Yaml formats.
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
