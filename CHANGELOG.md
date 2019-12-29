@@ -1,3 +1,7 @@
+# v0.2.2
+
+* Add CI trigger for tags also.
+
 # v0.2.1
 
 * Fix release script
