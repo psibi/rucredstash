@@ -7,6 +7,8 @@ cargo build --release
 rm -rf "${BUILD_BINARIESDIRECTORY}"
 mkdir "${BUILD_BINARIESDIRECTORY}"
 
+ls .
+
 if [[ -f "target/release/credstash.exe" ]]; then
   mv "target/release/credstash.exe" 
 else
