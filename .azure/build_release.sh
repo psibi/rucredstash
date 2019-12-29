@@ -5,11 +5,7 @@ set -eux
 rm -rf "${BUILD_BINARIESDIRECTORY}"
 mkdir "${BUILD_BINARIESDIRECTORY}"
 
-ls .
-
 cargo build --release
-
-ls -R
 
 if [[ -f "target/release/rucredstash.exe" ]]; then
   mv "target/release/rucredstash.exe" 
