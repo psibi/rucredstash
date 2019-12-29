@@ -2,7 +2,7 @@
 name = "credstash"
 version = "0.1.0"
 description = "Credstash is a utility for managing credentials in the AWS cloud"
-keywords = ["AWS", "Amazon"]
+keywords = ["AWS", "Amazon", "Secret", "Encryption", "Security"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/psibi/rucredstash"
@@ -27,6 +27,8 @@ hex = "0.3.1"
 futures = "0.1.29"
 tokio-core = "0.1"
 either = "1.5.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [[bin]]
 name = "rucredstash"
