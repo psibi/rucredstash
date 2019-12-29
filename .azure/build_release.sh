@@ -7,8 +7,8 @@ cargo install --path . --force
 rm -rf "${BUILD_BINARIESDIRECTORY}"
 mkdir "${BUILD_BINARIESDIRECTORY}"
 
-if [[ -f "target/${TARGET}/release/credstash.exe" ]]; then
-  mv "target/${TARGET}/release/credstash.exe" "${BUILD_BINARIESDIRECTORY}/"
+if [[ -f "target/release/credstash.exe" ]]; then
+  mv "target/release/credstash.exe" "${BUILD_BINARIESDIRECTORY}/"
 else
-  mv "target/${TARGET}/release/credstash" "${BUILD_BINARIESDIRECTORY}/"
+  mv "target/release/credstash" "${BUILD_BINARIESDIRECTORY}/"
 fi
