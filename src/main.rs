@@ -66,9 +66,18 @@ enum AutoIncrement {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+enum ExportOption {
+    Json,
+    Yaml,
+    Csv,
+    DotEnv,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 struct GetAllOpts {
     version: Option<u64>,
     encryption_context: Option<(String, String)>,
+    export: ExportOption,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -221,27 +230,68 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 .map(|opts| opts.version)
                 .map_or(None, |item| item);
             let encryption_context = get_opts
+                .clone()
                 .map(|opts| opts.encryption_context)
                 .map_or(None, |item| item);
             let get_future = client.get_all_secrets(table_name, encryption_context, version);
             match core.run(get_future) {
                 Err(err) => eprintln!("Failure: {:?}", err),
-                Ok(val) => {
-                    let items: Map<_, _> = val
-                        .into_iter()
-                        .map(|item| {
-                            (
-                                item.credential_name,
-                                Value::String(render_secret(item.credential_value)),
-                            )
-                        })
-                        .collect();
-                    let result = to_string_pretty(&Value::Object(items)).unwrap();
-                    println!("{}", result);
-                }
+                Ok(val) => match get_opts {
+                    None => (),
+                    Some(opts) => match opts.clone().export {
+                        ExportOption::Json => render_json_credstash_item(val),
+                        ExportOption::Yaml => render_yaml_credstash_item(val),
+                        ExportOption::Csv => render_csv_credstash_item(val),
+                        ExportOption::DotEnv => render_dotenv_credstash_item(val),
+                    },
+                },
             }
         }
     }
+}
+
+fn render_csv_credstash_item(val: Vec<credstash::CredstashItem>) {
+    for item in val {
+        println!(
+            "{},{}",
+            item.credential_name,
+            render_secret(item.credential_value)
+        )
+    }
+}
+
+fn render_dotenv_credstash_item(val: Vec<credstash::CredstashItem>) {
+    for item in val {
+        println!(
+            "{}='{}'",
+            item.credential_name,
+            render_secret(item.credential_value)
+        )
+    }
+}
+
+fn render_yaml_credstash_item(val: Vec<credstash::CredstashItem>) {
+    for item in val {
+        println!(
+            "{}: {}",
+            item.credential_name,
+            render_secret(item.credential_value)
+        )
+    }
+}
+
+fn render_json_credstash_item(val: Vec<credstash::CredstashItem>) {
+    let items: Map<_, _> = val
+        .into_iter()
+        .map(|item| {
+            (
+                item.credential_name,
+                Value::String(render_secret(item.credential_value)),
+            )
+        })
+        .collect();
+    let result = to_string_pretty(&Value::Object(items)).unwrap();
+    println!("{}", result);
 }
 
 impl CredstashApp {
@@ -325,7 +375,7 @@ impl CredstashApp {
             .about("Get all credentials from the store")
             .arg(Arg::with_name("context")
                  .help("encryption context key/value pairs associated with the credential in the form of key=value")
-            ).arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
+            ).arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::with_name("format").short("f").long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).case_insensitive(true));
 
         let keys_command = SubCommand::with_name("keys").about("List all keys in the store");
 
@@ -398,9 +448,19 @@ impl CredstashApp {
                         .parse::<u64>()
                         .expect("Version should be positive integer")
                 });
+                let export_type = get_matches.value_of("format").map_or(
+                    ExportOption::Json,
+                    |export| match export.to_lowercase().as_ref() {
+                        "csv" => ExportOption::Csv,
+                        "yaml" => ExportOption::Yaml,
+                        "dotenv" => ExportOption::DotEnv,
+                        _ => ExportOption::Json,
+                    },
+                );
                 let getall_opts = GetAllOpts {
                     version,
                     encryption_context,
+                    export: export_type,
                 };
                 Action::GetAll(Some(getall_opts))
             }

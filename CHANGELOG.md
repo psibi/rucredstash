@@ -1,3 +1,7 @@
+# v0.3.0
+
+* Add different format support for export options.
+
 # v0.2.3
 
 * Fix missing OS assets
