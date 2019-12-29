@@ -90,10 +90,7 @@ Todo: Test the above with encryption context, different versions.
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
-* Documentation for CredStashCredential
-* Fix tests
-* CI/CD
-* Support downloading executables from three platforms
+* Support downloading for musl, bsd etc.
   - https://github.com/rust-embedded/cross
 * async/await
 * Remove warnings
