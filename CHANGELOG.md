@@ -1,3 +1,7 @@
+# v0.2.3
+
+* Fix missing OS assets
+
 # v0.2.2
 
 * Add CI trigger for tags also.
