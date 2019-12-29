@@ -208,7 +208,8 @@ pub struct CredStashClient {
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
     aes_key: Bytes,
-    pub dynamo_hmac_key: Key,
+    /// HMAC signing key with digest algorithm and the key value
+    pub hmac_key: Key,
     /// Credential name which has been stored.
     pub credential_name: String,
     /// Decrypted credential value. This corresponds with the `credential_name`.
@@ -326,8 +327,23 @@ impl From<CredentialsError> for CredStashClientError {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CredStashCredential {
-    DefaultProfile(Option<String>),
+    /// Provides AWS credentials from multiple possible sources using a priority order.
+    ///
+    /// The following sources are checked in order for credentials when calling `credentials`:
+    ///
+    /// 1. Environment variables: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+    /// 2. `credential_process` command in the AWS config file, usually located at `~/.aws/config`.
+    /// 3. AWS credentials file. Usually located at `~/.aws/credentials`.
+    /// 4. IAM instance profile. Will only work if running on an EC2 instance with an instance profile/role.    
+    ///
+    /// Note that this credential will also automatically refresh the credentials when they expire.
     DefaultCredentialsProvider,
+    /// Provides AWS credentials from a profile in a credentials file, or from a credential process.
+    DefaultProfile(Option<String>),
+    /// Use STS to assume role. The first argument is the ARN of the
+    /// role to assume. The second tuple consiste of an optional MFA
+    /// hardware device serial number or virtual device ARN and the
+    /// associated MFA code.
     DefaultAssumeRole((String, Option<(String, String)>)),
 }
 
@@ -984,7 +1000,7 @@ impl CredStashClient {
                             crypto_context.aes_decrypt_ctr(item_contents, aes_key.to_vec().clone());
                         Ok(CredstashItem {
                             aes_key: aes_key,
-                            dynamo_hmac_key: hmac_key,
+                            hmac_key: hmac_key,
                             credential_value: contents,
                             hmac_digest: item_hmac,
                             digest_algorithm: algorithm,

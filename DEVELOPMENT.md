@@ -90,7 +90,6 @@ Todo: Test the above with encryption context, different versions.
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
-* Rename dynamo_hmac_key field
 * Documentation for CredStashCredential
 * Fix tests
 * CI/CD
