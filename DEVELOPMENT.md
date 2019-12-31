@@ -104,6 +104,9 @@ Todo: Test the above with encryption context, different versions.
   - https://github.com/rust-embedded/cross
 * async/await
 * Remove warnings
+* Write more comprehensive tests
+* Proper exit code handling on erros for the CLI
+* Proper version on help message
 
 ## Reference
 

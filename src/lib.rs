@@ -7,13 +7,11 @@ extern crate rusoto_dynamodb;
 extern crate rusoto_sts;
 extern crate tokio_core;
 
+mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use core::convert::From;
-use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
-use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
-mod crypto;
-pub use crate::crypto::credstash_crypto::Crypto;
+use crypto::credstash_crypto::Crypto;
 use futures::future;
 use futures::future::Future;
 use futures::future::IntoFuture;
@@ -23,6 +21,7 @@ use ring;
 use ring::hmac::{sign, Algorithm, Key};
 use rusoto_core::region::Region;
 use rusoto_core::{HttpClient, RusotoError};
+use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
     DeleteItemError, DeleteItemInput, DeleteItemOutput, DescribeTableError, DescribeTableInput,
@@ -35,6 +34,7 @@ use rusoto_kms::{
     DecryptError, DecryptResponse, GenerateDataKeyError, GenerateDataKeyRequest,
     GenerateDataKeyResponse, Kms, KmsClient,
 };
+use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::iter::Iterator;
@@ -988,7 +988,7 @@ impl CredStashClient {
                     .map_err(|err| From::from(err))
                     .and_then(move |(hmac_key, aes_key)| {
                         let crypto_context = Crypto::new();
-                        let verified = crypto_context.verify_ciphertext_integrity(
+                        let verified = Crypto::verify_ciphertext_integrity(
                             &hmac_key,
                             &item_contents,
                             &item_hmac,

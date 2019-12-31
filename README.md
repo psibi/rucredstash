@@ -65,7 +65,6 @@ The most simple case is to export the proper environment variable and use it:
 $ export AWS_ACCESS_KEY_ID=xxxx
 $ export AWS_SECRET_ACCESS_KEY=xxxx
 $ rucredstash list
-Enter MFA Code: xxxxx
 hello            -- version 0000000000000000001 --comment
 hellehllobyegood -- version 0000000000000000001 --comment
 hello1           -- version 0000000000000000001 --comment

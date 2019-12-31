@@ -16,7 +16,6 @@ pub mod credstash_crypto {
         }
 
         pub fn verify_ciphertext_integrity(
-            &self,
             hmac_key: &hmac::Key,
             ciphertext: &Vec<u8>,
             hmac: &Vec<u8>,
@@ -34,7 +33,7 @@ pub mod credstash_crypto {
             let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
             let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
             let mut c1 = plaintext.clone();
-            let f: &mut [u8] = unsafe {
+            let f: &mut [u8] = {
                 let c2: &mut [u8] = c1.as_mut();
                 cipher.apply_keystream(c2);
                 c2
@@ -47,7 +46,7 @@ pub mod credstash_crypto {
             let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
             let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
             let mut c1 = ciphertext.clone();
-            let f: &mut [u8] = unsafe {
+            let f: &mut [u8] = {
                 let c2: &mut [u8] = c1.as_mut();
                 cipher.apply_keystream(c2);
                 c2
