@@ -1,6 +1,8 @@
-# v0.3.0
+# v0.3.0 (Unreleased)
 
+* Fix version display of the program
 * Add different format support for export options.
+* Fix all the warnings
 
 # v0.2.3
 

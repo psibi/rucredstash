@@ -141,7 +141,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             };
             match core.run(box_future) {
                 Ok(_) => println!("{} has been stored", credential_name),
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
             }
         }
         Action::List => {
@@ -167,7 +167,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                         )
                     }
                 }
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
             }
         }
         Action::Delete(credential) => {
@@ -182,13 +182,13 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                         );
                     }
                 }
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
             }
         }
         Action::Setup(setup_opts) => {
             let result = client.create_db_table(table_name, setup_opts.tags);
             match core.run(result) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(_val) => {
                     println!("Creation initiated");
                 }
@@ -197,7 +197,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
         Action::Keys => {
             let list_future = client.list_secrets(table_name);
             match core.run(list_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(val) => {
                     for item in val {
                         println!("{}", item.name)
@@ -213,7 +213,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 get_opts.version,
             );
             match core.run(get_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(result) => {
                     if get_opts.noline {
                         print!("{}", render_secret(result.credential_value))
@@ -234,7 +234,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 .map_or(None, |item| item);
             let get_future = client.get_all_secrets(table_name, encryption_context, version);
             match core.run(get_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(val) => match get_opts {
                     None => (),
                     Some(opts) => match opts.clone().export {
@@ -590,7 +590,7 @@ impl CredstashApp {
 }
 
 fn program_exit(msg: &str) {
-    println!("{}", msg);
+    eprintln!("{}", msg);
     std::process::exit(1);
 }
 
