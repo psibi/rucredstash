@@ -104,8 +104,6 @@ Todo: Test the above with encryption context, different versions.
   - https://github.com/rust-embedded/cross
 * async/await
 * Write more comprehensive tests
-* Proper exit code handling on erros for the CLI
-* Proper version on help message
 * Should not crash when subcommand is not passed. Should print
   something sensible instead.
 

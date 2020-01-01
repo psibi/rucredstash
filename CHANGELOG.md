@@ -1,5 +1,6 @@
 # v0.3.0 (Unreleased)
 
+* Set proper failure exit code on error
 * Fix version display of the program
 * Add different format support for export options.
 * Fix all the warnings
