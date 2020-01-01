@@ -7,23 +7,22 @@ extern crate tokio_core;
 
 use clap::{App, Arg, SubCommand};
 use credstash::{CredStashClient, CredStashCredential};
+use either::Either;
 use futures::future::Future;
+use ring;
 use ring::hmac::Algorithm;
 use rusoto_core::region::Region;
 use rusoto_dynamodb::AttributeValue;
 use serde_json::map::Map;
 use serde_json::{to_string_pretty, Value};
+use std::clone::Clone;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
-use std::io::Write;
-use std::str::FromStr;
-mod crypto;
-use either::Either;
-use ring;
-use std::clone::Clone;
 use std::io;
+use std::io::Write;
 use std::str;
+use std::str::FromStr;
 use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
@@ -304,8 +303,9 @@ impl CredstashApp {
         I: Iterator<Item = T>,
         T: Into<OsString> + Clone,
     {
+        let version: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
         let app: App = App::new("rucredstash")
-            .version("0.1")
+            .version(version.unwrap())
             .about("A credential/secret storage system")
             .author("Sibi Prabakaran");
 
