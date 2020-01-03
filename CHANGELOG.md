@@ -4,6 +4,7 @@
 * Fix version display of the program
 * Add different format support for export options.
 * Fix all the warnings
+* Handle invalid subcommand and options.
 
 # v0.2.3
 

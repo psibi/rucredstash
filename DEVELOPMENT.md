@@ -100,12 +100,9 @@ Todo: Test the above with encryption context, different versions.
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
-* Support downloading for musl, bsd etc.
-  - https://github.com/rust-embedded/cross
 * async/await
+  - todo: link issue
 * Write more comprehensive tests
-* Should not crash when subcommand is not passed. Should print
-  something sensible instead.
 
 ## Reference
 

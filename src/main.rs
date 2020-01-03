@@ -107,6 +107,7 @@ enum Action {
     List,
     Put(String, String, Option<(String, String)>, PutOpts),
     Setup(SetupOpts),
+    Invalid(String),
 }
 
 fn get_table_name(table_name: Option<String>) -> String {
@@ -246,6 +247,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 },
             }
         }
+        Action::Invalid(msg) => program_exit(&msg),
     }
 }
 
@@ -355,7 +357,11 @@ impl CredstashApp {
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
-            .arg(Arg::with_name("credential").help("Delete a credential from the store"));
+            .arg(
+                Arg::with_name("credential")
+                    .help("Delete a credential from the store")
+                    .required(true),
+            );
 
         let get_command = SubCommand::with_name("get")
             .about("Get a credential from the store")
@@ -547,7 +553,10 @@ impl CredstashApp {
                 let credential: String = del_matches.value_of("credential").unwrap().to_string();
                 Action::Delete(credential)
             }
-            _ => unreachable!(),
+            (subcommand, _) => {
+                let err_msg = format!("Invalid Subcommand {} found. Use --help to see accepted subcommands and option", subcommand);
+                Action::Invalid(err_msg)
+            }
         };
 
         let table_name = {
