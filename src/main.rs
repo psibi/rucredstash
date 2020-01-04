@@ -7,23 +7,22 @@ extern crate tokio_core;
 
 use clap::{App, Arg, SubCommand};
 use credstash::{CredStashClient, CredStashCredential};
+use either::Either;
 use futures::future::Future;
+use ring;
 use ring::hmac::Algorithm;
 use rusoto_core::region::Region;
 use rusoto_dynamodb::AttributeValue;
 use serde_json::map::Map;
 use serde_json::{to_string_pretty, Value};
+use std::clone::Clone;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
-use std::io::Write;
-use std::str::FromStr;
-mod crypto;
-use either::Either;
-use ring;
-use std::clone::Clone;
 use std::io;
+use std::io::Write;
 use std::str;
+use std::str::FromStr;
 use std::string::ToString;
 use std::vec::Vec;
 use tokio_core::reactor::Core;
@@ -108,6 +107,7 @@ enum Action {
     List,
     Put(String, String, Option<(String, String)>, PutOpts),
     Setup(SetupOpts),
+    Invalid(String),
 }
 
 fn get_table_name(table_name: Option<String>) -> String {
@@ -142,7 +142,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             };
             match core.run(box_future) {
                 Ok(_) => println!("{} has been stored", credential_name),
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
             }
         }
         Action::List => {
@@ -168,7 +168,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                         )
                     }
                 }
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
             }
         }
         Action::Delete(credential) => {
@@ -183,13 +183,13 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                         );
                     }
                 }
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
             }
         }
         Action::Setup(setup_opts) => {
             let result = client.create_db_table(table_name, setup_opts.tags);
             match core.run(result) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(_val) => {
                     println!("Creation initiated");
                 }
@@ -198,7 +198,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
         Action::Keys => {
             let list_future = client.list_secrets(table_name);
             match core.run(list_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(val) => {
                     for item in val {
                         println!("{}", item.name)
@@ -214,7 +214,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 get_opts.version,
             );
             match core.run(get_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(result) => {
                     if get_opts.noline {
                         print!("{}", render_secret(result.credential_value))
@@ -235,7 +235,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 .map_or(None, |item| item);
             let get_future = client.get_all_secrets(table_name, encryption_context, version);
             match core.run(get_future) {
-                Err(err) => eprintln!("Failure: {:?}", err),
+                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
                 Ok(val) => match get_opts {
                     None => (),
                     Some(opts) => match opts.clone().export {
@@ -247,6 +247,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 },
             }
         }
+        Action::Invalid(msg) => program_exit(&msg),
     }
 }
 
@@ -304,8 +305,9 @@ impl CredstashApp {
         I: Iterator<Item = T>,
         T: Into<OsString> + Clone,
     {
+        let version: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
         let app: App = App::new("rucredstash")
-            .version("0.1")
+            .version(version.unwrap())
             .about("A credential/secret storage system")
             .author("Sibi Prabakaran");
 
@@ -355,7 +357,11 @@ impl CredstashApp {
 
         let del_command = SubCommand::with_name("delete")
             .about("Delete a credential from the store")
-            .arg(Arg::with_name("credential").help("Delete a credential from the store"));
+            .arg(
+                Arg::with_name("credential")
+                    .help("Delete a credential from the store")
+                    .required(true),
+            );
 
         let get_command = SubCommand::with_name("get")
             .about("Get a credential from the store")
@@ -547,7 +553,10 @@ impl CredstashApp {
                 let credential: String = del_matches.value_of("credential").unwrap().to_string();
                 Action::Delete(credential)
             }
-            _ => unreachable!(),
+            (subcommand, _) => {
+                let err_msg = format!("Invalid Subcommand {} found. Use --help to see accepted subcommands and option", subcommand);
+                Action::Invalid(err_msg)
+            }
         };
 
         let table_name = {
@@ -590,7 +599,7 @@ impl CredstashApp {
 }
 
 fn program_exit(msg: &str) {
-    println!("{}", msg);
+    eprintln!("{}", msg);
     std::process::exit(1);
 }
 

@@ -93,17 +93,25 @@ HELLO='world'
 HELLO1='world1'
 ```
 
-Todo: Test the above with encryption context, different versions.
+## CI Tests
+
+Note that CI doesn't run the integration tests as it needs AWS
+integration and it isn't free. But, you can manually run it if you
+have the default dynamoDB and the KMS key setup. This is how you should execute:
+
+```
+$ cargo test
+$ cd tests
+$ ./test.sh
+```
 
 ## Future TODOs
 
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
-* Support downloading for musl, bsd etc.
-  - https://github.com/rust-embedded/cross
 * async/await
-* Remove warnings
+  - https://github.com/rusoto/rusoto/issues/1475
 
 ## Reference
 
