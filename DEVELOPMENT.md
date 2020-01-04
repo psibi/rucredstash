@@ -100,9 +100,9 @@ Todo: Test the above with encryption context, different versions.
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
+* Improve readme documentation
 * async/await
   - todo: link issue
-* Write more comprehensive tests
 
 ## Reference
 
