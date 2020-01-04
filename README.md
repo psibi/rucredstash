@@ -24,7 +24,7 @@ accessing it.
 
 ``` shellsession
 $ rucredstash --help
-rucredstash 0.1
+rucredstash 0.4
 Sibi Prabakaran
 A credential/secret storage system
 
@@ -59,6 +59,8 @@ SUBCOMMANDS:
 
 ## Usage Examples
 
+### Different way of passing AWS Credentials
+
 The most simple case is to export the proper environment variable and use it:
 
 ``` shellsession
@@ -72,9 +74,8 @@ hello1           -- version 0000000000000000001 --comment
 
 Note that `rucredstash` by default uses
 [DefaultCredentialsProvider](https://docs.rs/rusoto_credential/0.42.0/rusoto_credential/struct.DefaultCredentialsProvider.html),
-so your credentials will be based on that. But it even allows complex
-usecase (something which is not possible in the original credstash
-program);
+so your credentials will be based on that. But it even allows other
+complex usage scenarios:
 
 ``` shellsession
 $ export AWS_ACCESS_KEY_ID=xxxx
@@ -87,7 +88,7 @@ hello1           -- version 0000000000000000001 --comment
 ```
 
 Note that the MFA functionality isn't present in the original
-rucredstash. You can also use programs like
+credstash program (the Python program). You can also use programs like
 [aws-env](https://github.com/fpco/devops-helpers/blob/master/doc/aws/aws-env.md)
 and use this tool. Example:
 
@@ -96,4 +97,49 @@ $ aws-env rucredstash list
 hello            -- version 0000000000000000001 --comment
 hellehllobyegood -- version 0000000000000000001 --comment
 hello1           -- version 0000000000000000001 --comment
+```
+
+## Other usage examples
+
+### Get secret value
+
+``` shellsession
+$ rucredstash get hello1
+world1
+```
+
+### Put secret value
+
+``` shellsession
+$ rucredstash put hello world
+hello has been stored
+```
+
+### Get all secret values
+
+``` shellsession
+$ rucredstash getall
+{
+  "hellehllobyegood": "dam",
+  "hello": "world",
+  "hello1": "world1"
+}
+```
+
+You can get that in other formats too:
+
+``` shellsession
+$ rucredstash getall --format yaml
+hello: world
+hellehllobyegood: dam
+hello1: world1
+```
+
+### Get all keys
+
+``` shellsession
+$ rucredstash keys
+hello
+hellehllobyegood
+hello1
 ```

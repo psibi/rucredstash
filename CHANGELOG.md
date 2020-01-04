@@ -1,10 +1,14 @@
-# v0.3.0 (Unreleased)
+# v0.4.0 (Unreleased)
 
 * Set proper failure exit code on error
 * Fix version display of the program
-* Add different format support for export options.
 * Fix all the warnings
 * Handle invalid subcommand and options.
+* Improved documentation of the CLI tool.
+
+# v0.3.0 
+
+* Add different format support for export options.
 
 # v0.2.3
 

@@ -7,11 +7,11 @@ extern crate rusoto_dynamodb;
 extern crate rusoto_sts;
 extern crate tokio_core;
 
-mod crypto;
+pub mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
 use core::convert::From;
-use crypto::credstash_crypto::Crypto;
+use crypto::Crypto;
 use futures::future;
 use futures::future::Future;
 use futures::future::IntoFuture;
