@@ -1,4 +1,4 @@
-# v0.4.0 (Unreleased)
+# v0.4.0
 
 * Set proper failure exit code on error
 * Fix version display of the program
