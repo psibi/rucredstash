@@ -107,6 +107,10 @@ $ ./test.sh
 
 ## Future TODOs
 
+* Provide cli subcommand to create CMK
+  - This feature isn't present in the original credstash
+* Provide cli subcommand to delete all credentials
+  - This feature isn't present in the original credstash
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
@@ -119,4 +123,3 @@ $ ./test.sh
 * https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html
 * https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html
 * https://docs.rs/bytes/0.4.12/bytes/struct.Bytes.html
-* https://github.com/fugue/credstash/blob/master/credstash.py

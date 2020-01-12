@@ -315,7 +315,21 @@ impl From<RusotoError<ScanError>> for CredStashClientError {
 
 impl From<RusotoError<DecryptError>> for CredStashClientError {
     fn from(error: RusotoError<DecryptError>) -> Self {
-        CredStashClientError::AWSKMSError(error.to_string())
+        let err = format!("{:?}", error);
+        CredStashClientError::AWSKMSError(err)
+    }
+}
+
+impl From<(RusotoError<DecryptError>, Vec<(String, String)>)> for CredStashClientError {
+    fn from(error: (RusotoError<DecryptError>, Vec<(String, String)>)) -> Self {
+        let enc_context = error.1;
+        let msg;
+        if enc_context.len() > 0 {
+            msg = "Could not decrypt hmac key with KMS. The encryption context provided may not match the one used when the credential was stored.";
+        } else {
+            msg = "Could not decrypt hmac key with KMS. The credential may require that an encryption context be provided to decrypt it."
+        }
+        CredStashClientError::AWSKMSError(msg.to_string())
     }
 }
 
@@ -564,7 +578,7 @@ impl CredStashClient {
         credential_name: String,
         credential_value: String,
         key_id: Option<String>,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
     ) -> impl Future<Item = PutItemOutput, Error = CredStashClientError> + 'a {
@@ -735,7 +749,7 @@ impl CredStashClient {
         credential_name: String,
         credential_value: String,
         key_id: Option<String>,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
         version: Option<u64>,
         comment: Option<String>,
         digest_algorithm: Algorithm,
@@ -777,7 +791,7 @@ impl CredStashClient {
     pub fn create_db_table<'a>(
         &'a self,
         table_name: String,
-        tags: Option<Vec<(String, String)>>,
+        tags: Vec<(String, String)>,
     ) -> impl Future<Item = CreateTableOutput, Error = CredStashClientError> + 'a {
         let mut query: DescribeTableInput = Default::default();
         query.table_name = table_name.clone();
@@ -825,18 +839,21 @@ impl CredStashClient {
         throughput.write_capacity_units = 1;
         create_query.provisioned_throughput = Some(throughput);
 
-        let table_tags: Option<Vec<Tag>> = tags.map(|item| {
-            item.into_iter()
-                .map(|(name, value)| {
-                    let mut tag: Tag = Default::default();
-                    tag.key = name;
-                    tag.value = value;
-                    tag
-                })
-                .collect()
-        });
+        let table_tags: Vec<Tag> = tags
+            .into_iter()
+            .map(|(name, value)| {
+                let mut tag: Tag = Default::default();
+                tag.key = name;
+                tag.value = value;
+                tag
+            })
+            .collect();
 
-        create_query.tags = table_tags;
+        create_query.tags = if table_tags.len() > 0 {
+            Some(table_tags)
+        } else {
+            None
+        };
         table_result
             .map_err(|err| From::from(err))
             .and_then(move |_result| {
@@ -858,7 +875,7 @@ impl CredStashClient {
     pub fn get_all_secrets<'a>(
         &'a self,
         table_name: String,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
         version: Option<u64>,
     ) -> impl Future<Item = Vec<CredstashItem>, Error = CredStashClientError> + 'a {
         let table = table_name.clone();
@@ -886,7 +903,7 @@ impl CredStashClient {
     fn to_dynamo_result<'a>(
         &'a self,
         query_output: Option<Vec<HashMap<String, AttributeValue>>>,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
     ) -> impl Future<Item = CredstashItem, Error = CredStashClientError> + 'a {
         fn aux(
             items: Option<Vec<HashMap<String, AttributeValue>>>,
@@ -984,6 +1001,7 @@ impl CredStashClient {
                     .map_or(ring::hmac::HMAC_SHA256, |item| {
                         to_algorithm(item.to_owned())
                     });
+                // todo: how come credstash has better error message ?
                 self.decrypt_via_kms(algorithm.clone(), decoded_key, encryption_context)
                     .map_err(|err| From::from(err))
                     .and_then(move |(hmac_key, aes_key)| {
@@ -1037,7 +1055,7 @@ impl CredStashClient {
         &'a self,
         table_name: String,
         credential_name: String,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
         version: Option<u64>,
     ) -> impl Future<Item = CredstashItem, Error = CredStashClientError> + 'a {
         let mut query: QueryInput = Default::default();
@@ -1101,18 +1119,20 @@ impl CredStashClient {
     fn generate_key_via_kms(
         &self,
         number_of_bytes: i64,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
         key_id: Option<String>,
     ) -> impl Future<Item = GenerateDataKeyResponse, Error = RusotoError<GenerateDataKeyError>>
     {
         let mut query: GenerateDataKeyRequest = Default::default();
         query.key_id = key_id.map_or("alias/credstash".to_string(), |item| item);
         query.number_of_bytes = Some(number_of_bytes);
-        query.encryption_context = encryption_context.map(|(context_key, context_value)| {
-            let mut hash_map = HashMap::new();
-            hash_map.insert(context_key, context_value);
-            hash_map
-        });
+        let mut hash_map = HashMap::new();
+        if encryption_context.len() > 0 {
+            for (context_key, context_value) in encryption_context {
+                hash_map.insert(context_key, context_value);
+            }
+            query.encryption_context = Some(hash_map);
+        }
         self.kms_client.generate_data_key(query)
     }
 
@@ -1120,23 +1140,23 @@ impl CredStashClient {
         &self,
         digest_algorithm: Algorithm,
         cipher: Vec<u8>,
-        encryption_context: Option<(String, String)>,
+        encryption_context: Vec<(String, String)>,
     ) -> impl Future<Item = (Key, Bytes), Error = CredStashClientError> {
         let mut query: DecryptRequest = Default::default();
         let mut context = HashMap::new();
 
         query.ciphertext_blob = Bytes::from(cipher);
-        match encryption_context {
-            None => query.encryption_context = None,
-            Some((c1, c2)) => {
-                context.insert(c1, c2);
-                query.encryption_context = Some(context);
-            }
+        for (c1, c2) in encryption_context.clone() {
+            context.insert(c1, c2);
         }
-
+        if encryption_context.len() == 0 {
+            query.encryption_context = None;
+        } else {
+            query.encryption_context = Some(context);
+        }
         self.kms_client
             .decrypt(query)
-            .map_err(|err| From::from(err))
+            .map_err(|err| From::from((err, encryption_context)))
             .and_then(move |result| get_key(result, digest_algorithm))
     }
 }
