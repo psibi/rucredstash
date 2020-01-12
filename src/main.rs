@@ -75,7 +75,7 @@ enum ExportOption {
 #[derive(Debug, PartialEq, Clone)]
 struct GetAllOpts {
     version: Option<u64>,
-    encryption_context: Option<(String, String)>,
+    encryption_context: Vec<(String, String)>,
     export: ExportOption,
 }
 
@@ -101,11 +101,11 @@ struct GetOpts {
 #[derive(Debug, PartialEq, Clone)]
 enum Action {
     Delete(String),
-    Get(String, Option<(String, String)>, GetOpts),
+    Get(String, Vec<(String, String)>, GetOpts),
     GetAll(Option<GetAllOpts>),
     Keys,
     List,
-    Put(String, String, Option<(String, String)>, PutOpts),
+    Put(String, String, Vec<(String, String)>, PutOpts),
     Setup(SetupOpts),
     Invalid(String),
 }
@@ -232,7 +232,7 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
             let encryption_context = get_opts
                 .clone()
                 .map(|opts| opts.encryption_context)
-                .map_or(None, |item| item);
+                .map_or(vec![], |item| item);
             let get_future = client.get_all_secrets(table_name, encryption_context, version);
             match core.run(get_future) {
                 Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
@@ -371,7 +371,7 @@ impl CredstashApp {
                     .required(true)
             ).arg(
                 Arg::with_name("context")
-                    .help("encryption context key/value pairs associated with the credential in the form of key=value")
+                    .help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true)
 
             )
             .arg(Arg::with_name("noline").short("n").long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
@@ -380,7 +380,7 @@ impl CredstashApp {
         let get_all_command = SubCommand::with_name("getall")
             .about("Get all credentials from the store")
             .arg(Arg::with_name("context")
-                 .help("encryption context key/value pairs associated with the credential in the form of key=value")
+                 .help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true)
             ).arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::with_name("format").short("f").long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).case_insensitive(true));
 
         let keys_command = SubCommand::with_name("keys").about("List all keys in the store");
@@ -392,7 +392,7 @@ impl CredstashApp {
             .about("Put a credential from the store")
             .arg(Arg::with_name("credential").help("the name of the credential to store").required(true))
             .arg(Arg::with_name("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
-            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
+            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true))
             .arg(Arg::with_name("key").short("k").long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::with_name("comment").short("c").long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
             .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
@@ -429,9 +429,14 @@ impl CredstashApp {
                     .value_of("credential")
                     .expect("Credential not supplied")
                     .to_string();
-                let context = get_matches.value_of("context").map(|e| e.to_string());
-                let encryption_context: Option<(String, String)> =
-                    context.map_or(None, |e| split_context_to_tuple(e));
+                let context: Option<Vec<_>> = get_matches.values_of("context").map(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).unwrap())
+                        .collect()
+                });
+                let encryption_context: Vec<_> = match context {
+                    None => vec![],
+                    Some(x) => x,
+                };
                 let version = get_matches.value_of("version").map(|ver| {
                     ver.to_string()
                         .parse::<u64>()
@@ -445,10 +450,14 @@ impl CredstashApp {
             }
             ("getall", None) => Action::GetAll(None),
             ("getall", Some(get_matches)) => {
-                let context: Option<String> =
-                    get_matches.value_of("context").map(|e| e.to_string());
-                let encryption_context: Option<(String, String)> =
-                    context.map_or(None, |e| split_context_to_tuple(e));
+                let context: Option<Vec<_>> = get_matches.values_of("context").map(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).unwrap())
+                        .collect()
+                });
+                let encryption_context: Vec<_> = match context {
+                    None => vec![],
+                    Some(x) => x,
+                };
                 let version = get_matches.value_of("version").map(|ver| {
                     ver.to_string()
                         .parse::<u64>()
@@ -538,10 +547,14 @@ impl CredstashApp {
                     version,
                     digest_algorithm,
                 };
-                let context: Option<String> =
-                    put_matches.value_of("context").map(|e| e.to_string());
-                let encryption_context: Option<(String, String)> =
-                    context.map_or(None, |e| split_context_to_tuple(e));
+                let context: Option<Vec<_>> = put_matches.values_of("context").map(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).unwrap())
+                        .collect()
+                });
+                let encryption_context: Vec<_> = match context {
+                    None => vec![],
+                    Some(x) => x,
+                };
                 Action::Put(
                     credential_name,
                     credential_value,

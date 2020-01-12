@@ -101,6 +101,28 @@ hello1           -- version 0000000000000000001 --comment
 
 ## Other usage examples
 
+### Put secret value
+
+``` shellsession
+$ rucredstash put hello world
+hello has been stored
+```
+
+You can also use the encryption context associated with the
+credential:
+
+``` shellsession
+$ rucredstash put nasdaq nifty500 market=world
+nasdaq has been stored
+```
+
+Or even multiple encryption contexts:
+
+``` shellsession
+$ rucredstash put vanguard vanguardsecret market=world indexfunds=us
+vanguard has been stored
+```
+
 ### Get secret value
 
 ``` shellsession
@@ -108,11 +130,18 @@ $ rucredstash get hello1
 world1
 ```
 
-### Put secret value
+Now let's also try to retrieve using the encryption context:
 
 ``` shellsession
-$ rucredstash put hello world
-hello has been stored
+$ rucredstash get nasdaq market=world
+nifty500
+```
+
+And using multiple encryption context:
+
+``` shellsession
+$ rucredstash get vanguard market=world indexfunds=us
+vanguardsecret
 ```
 
 ### Get all secret values

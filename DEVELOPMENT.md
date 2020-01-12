@@ -107,6 +107,12 @@ $ ./test.sh
 
 ## Future TODOs
 
+* Fix passing multiple encryption context
+  $ aws-env credstash put test1 test2 hello=jack foo=fafa
+* Might have to pass multiple tags to setup subcommand ?
+* Provide cli subcommand to create CMK
+* Improve error message when it fails
+* Musl based binaries
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
@@ -119,4 +125,3 @@ $ ./test.sh
 * https://docs.rs/rusoto_kms/0.41.0/rusoto_kms/trait.Kms.html
 * https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html
 * https://docs.rs/bytes/0.4.12/bytes/struct.Bytes.html
-* https://github.com/fugue/credstash/blob/master/credstash.py
