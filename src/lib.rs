@@ -320,6 +320,19 @@ impl From<RusotoError<DecryptError>> for CredStashClientError {
     }
 }
 
+impl From<(RusotoError<DecryptError>, Vec<(String, String)>)> for CredStashClientError {
+    fn from(error: (RusotoError<DecryptError>, Vec<(String, String)>)) -> Self {
+        let enc_context = error.1;
+        let msg;
+        if enc_context.len() > 0 {
+            msg = "Could not decrypt hmac key with KMS. The encryption context provided may not match the one used when the credential was stored.";
+        } else {
+            msg = "Could not decrypt hmac key with KMS. The credential may require that an encryption context be provided to decrypt it."
+        }
+        CredStashClientError::AWSKMSError(msg.to_string())
+    }
+}
+
 impl From<CredentialsError> for CredStashClientError {
     fn from(error: CredentialsError) -> Self {
         CredStashClientError::CredentialsError(error.to_string())
@@ -778,7 +791,7 @@ impl CredStashClient {
     pub fn create_db_table<'a>(
         &'a self,
         table_name: String,
-        tags: Option<Vec<(String, String)>>,
+        tags: Vec<(String, String)>,
     ) -> impl Future<Item = CreateTableOutput, Error = CredStashClientError> + 'a {
         let mut query: DescribeTableInput = Default::default();
         query.table_name = table_name.clone();
@@ -826,18 +839,21 @@ impl CredStashClient {
         throughput.write_capacity_units = 1;
         create_query.provisioned_throughput = Some(throughput);
 
-        let table_tags: Option<Vec<Tag>> = tags.map(|item| {
-            item.into_iter()
-                .map(|(name, value)| {
-                    let mut tag: Tag = Default::default();
-                    tag.key = name;
-                    tag.value = value;
-                    tag
-                })
-                .collect()
-        });
+        let table_tags: Vec<Tag> = tags
+            .into_iter()
+            .map(|(name, value)| {
+                let mut tag: Tag = Default::default();
+                tag.key = name;
+                tag.value = value;
+                tag
+            })
+            .collect();
 
-        create_query.tags = table_tags;
+        create_query.tags = if table_tags.len() > 0 {
+            Some(table_tags)
+        } else {
+            None
+        };
         table_result
             .map_err(|err| From::from(err))
             .and_then(move |_result| {
@@ -985,6 +1001,7 @@ impl CredStashClient {
                     .map_or(ring::hmac::HMAC_SHA256, |item| {
                         to_algorithm(item.to_owned())
                     });
+                // todo: how come credstash has better error message ?
                 self.decrypt_via_kms(algorithm.clone(), decoded_key, encryption_context)
                     .map_err(|err| From::from(err))
                     .and_then(move |(hmac_key, aes_key)| {
@@ -1139,7 +1156,7 @@ impl CredStashClient {
         }
         self.kms_client
             .decrypt(query)
-            .map_err(|err| From::from(err))
+            .map_err(|err| From::from((err, encryption_context)))
             .and_then(move |result| get_key(result, digest_algorithm))
     }
 }

@@ -107,12 +107,10 @@ $ ./test.sh
 
 ## Future TODOs
 
-* Fix passing multiple encryption context
-  $ aws-env credstash put test1 test2 hello=jack foo=fafa
-* Might have to pass multiple tags to setup subcommand ?
 * Provide cli subcommand to create CMK
-* Improve error message when it fails
-* Musl based binaries
+  - This feature isn't present in the original credstash
+* Provide cli subcommand to delete all credentials
+  - This feature isn't present in the original credstash
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.

@@ -89,7 +89,7 @@ struct PutOpts {
 
 #[derive(Debug, PartialEq, Clone)]
 struct SetupOpts {
-    tags: Option<Vec<(String, String)>>,
+    tags: Vec<(String, String)>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -482,7 +482,7 @@ impl CredstashApp {
             ("keys", _) => Action::Keys,
             ("list", _) => Action::List,
             ("setup", None) => {
-                let setup_opts = SetupOpts { tags: None };
+                let setup_opts = SetupOpts { tags: vec![] };
                 Action::Setup(setup_opts)
             }
             ("setup", Some(setup_matches)) => {
@@ -494,7 +494,9 @@ impl CredstashApp {
                         .filter_map(|item| split_tags_to_tuple(item))
                         .collect()
                 });
-                let setup_opts = SetupOpts { tags: table_tags };
+                let setup_opts = SetupOpts {
+                    tags: table_tags.map_or(vec![], |tag| tag),
+                };
                 Action::Setup(setup_opts)
             }
             ("put", Some(put_matches)) => {

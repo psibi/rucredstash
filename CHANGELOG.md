@@ -1,3 +1,10 @@
+# v0.5.0
+
+* Fix encryption context arguments and improve documentation.
+* Make tags option to setup more ergonomic
+* Improve errror messages on decryption failure based on encryption contexts
+* Improve tests
+
 # v0.4.0
 
 * Set proper failure exit code on error
