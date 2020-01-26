@@ -57,6 +57,22 @@ SUBCOMMANDS:
     setup     setup the credential store
 ```
 
+## Installation
+
+See Github releases: https://github.com/psibi/rucredstash/releases
+
+Executables are available for all the three major platforms: Linux, Windows and MacOS.
+
+## Infrastructure Setup
+
+For `rucredstash` to work, you need to setup the following AWS
+infrastrucutre:
+
+* Create Customer manged keys (CMK) key
+  - Services => KMS => Create Key => Input "credstash" for Key Alias
+* Create DynamoDB table
+  - rucredstash setup
+
 ## Usage Examples
 
 ### Different way of passing AWS Credentials

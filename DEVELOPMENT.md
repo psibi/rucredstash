@@ -29,20 +29,6 @@
   - Use this function: https://docs.rs/rusoto_dynamodb/0.41.0/rusoto_dynamodb/trait.DynamoDb.html#tymethod.put_item
   - Have this condition: https://github.com/fugue/credstash/blob/014d96bbde5dc474e155383760bb4b7f6078f761/credstash.py#L316
 
-## Done
-
-* Full version of get algorithm
-* Full version of put algorithm
-* Full version of delete algorithm (At least that's what I believe)
-* Full version of keys subcommand
-* Full version of list subcommand
-* Full version of getall subcommand
-* Minimal version of setup subcommand
-
-## Missing
-
-* noline
-
 ## Decrypt algorithm
 
 Algorithm: AES CTR mode
