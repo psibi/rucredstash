@@ -10,5 +10,6 @@ cargo build --release
 if [[ -f "target/release/rucredstash.exe" ]]; then
   mv "target/release/rucredstash.exe" "${BUILD_BINARIESDIRECTORY}/"
 else
+  strip "target/release/rucredstash"
   mv "target/release/rucredstash" "${BUILD_BINARIESDIRECTORY}/"
 fi
