@@ -1,14 +1,6 @@
-extern crate base64;
-extern crate clap;
-extern crate either;
-extern crate futures;
-extern crate serde_json;
-extern crate tokio_core;
-
 use clap::{App, Arg, SubCommand};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
-use futures::future::Future;
 use ring;
 use ring::hmac::Algorithm;
 use rusoto_core::region::Region;
@@ -25,7 +17,6 @@ use std::str;
 use std::str::FromStr;
 use std::string::ToString;
 use std::vec::Vec;
-use tokio_core::reactor::Core;
 
 #[derive(Debug, PartialEq, Clone)]
 struct CredstashApp {
@@ -114,115 +105,106 @@ fn get_table_name(table_name: Option<String>) -> String {
     table_name.map_or("credential-store".to_string(), |name| name)
 }
 
-fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
+async fn handle_action(
+    app: CredstashApp,
+    client: CredStashClient,
+) -> Result<(), credstash::CredStashClientError> {
     let table_name = get_table_name(app.table_name);
-    let mut core = Core::new().unwrap();
     match app.action {
         Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
-            let box_future: Box<dyn Future<Item = _, Error = _>> = match put_opts.version {
-                Either::Left(version) => Box::new(client.put_secret(
-                    table_name.clone(),
-                    credential_name.clone(),
-                    credential_value.clone(),
-                    put_opts.key_id,
-                    encryption_context.clone(),
-                    Some(version),
-                    put_opts.comment,
-                    put_opts.digest_algorithm,
-                )),
-                Either::Right(_) => Box::new(client.put_secret_auto_version(
-                    table_name,
-                    credential_name.clone(),
-                    credential_value,
-                    put_opts.key_id,
-                    encryption_context,
-                    put_opts.comment,
-                    put_opts.digest_algorithm,
-                )),
+            match put_opts.version {
+                Either::Left(version) => {
+                    client
+                        .put_secret(
+                            table_name.clone(),
+                            credential_name.clone(),
+                            credential_value.clone(),
+                            put_opts.key_id,
+                            encryption_context.clone(),
+                            Some(version),
+                            put_opts.comment,
+                            put_opts.digest_algorithm,
+                        )
+                        .await?
+                }
+                Either::Right(_) => {
+                    client
+                        .put_secret_auto_version(
+                            table_name,
+                            credential_name.clone(),
+                            credential_value,
+                            put_opts.key_id,
+                            encryption_context,
+                            put_opts.comment,
+                            put_opts.digest_algorithm,
+                        )
+                        .await?
+                }
             };
-            match core.run(box_future) {
-                Ok(_) => println!("{} has been stored", credential_name),
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
-            }
+            println!("{} has been stored", credential_name);
+            Ok(())
         }
         Action::List => {
-            let list_future = client.list_secrets(table_name);
-
-            match core.run(list_future) {
-                Ok(items) => {
-                    let max_name_len: Vec<usize> = items
-                        .clone()
-                        .into_iter()
-                        .map(|item| item.name.len())
-                        .collect();
-                    let max_len = max_name_len
-                        .iter()
-                        .fold(1, |acc, x| if acc < *x { *x } else { acc });
-                    for item in items {
-                        println!(
-                            "{:width$} -- version {: <10} --comment {}",
-                            item.name,
-                            item.version,
-                            render_comment(item.comment),
-                            width = max_len
-                        )
-                    }
-                }
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
+            let items = client.list_secrets(table_name).await?;
+            let max_name_len: Vec<usize> = items
+                .clone()
+                .into_iter()
+                .map(|item| item.name.len())
+                .collect();
+            let max_len = max_name_len
+                .iter()
+                .fold(1, |acc, x| if acc < *x { *x } else { acc });
+            for item in items {
+                println!(
+                    "{:width$} -- version {: <10} --comment {}",
+                    item.name,
+                    item.version,
+                    render_comment(item.comment),
+                    width = max_len
+                );
             }
+            Ok(())
         }
         Action::Delete(credential) => {
-            let result = client.delete_secret(table_name, credential.clone());
-            match core.run(result) {
-                Ok(items) => {
-                    for item in items {
-                        println!(
-                            "Deleting {} {}",
-                            credential,
-                            render_version(item.attributes)
-                        );
-                    }
-                }
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
+            let items = client.delete_secret(table_name, credential.clone()).await?;
+            for item in items {
+                println!(
+                    "Deleting {} {}",
+                    credential,
+                    render_version(item.attributes)
+                );
             }
+            Ok(())
         }
         Action::Setup(setup_opts) => {
-            let result = client.create_db_table(table_name, setup_opts.tags);
-            match core.run(result) {
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
-                Ok(_val) => {
-                    println!("Creation initiated");
-                }
-            }
+            client.create_db_table(table_name, setup_opts.tags).await?;
+            println!("Creation initiated");
+            Ok(())
         }
+
         Action::Keys => {
-            let list_future = client.list_secrets(table_name);
-            match core.run(list_future) {
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
-                Ok(val) => {
-                    for item in val {
-                        println!("{}", item.name)
-                    }
-                }
+            let items = client.list_secrets(table_name).await?;
+            for item in items {
+                println!("{}", item.name)
             }
+            Ok(())
         }
+
         Action::Get(credential_name, encryption_context, get_opts) => {
-            let get_future = client.get_secret(
-                table_name,
-                credential_name,
-                encryption_context,
-                get_opts.version,
-            );
-            match core.run(get_future) {
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
-                Ok(result) => {
-                    if get_opts.noline {
-                        print!("{}", render_secret(result.credential_value))
-                    } else {
-                        println!("{}", render_secret(result.credential_value))
-                    }
-                }
+            let item = client
+                .get_secret(
+                    table_name,
+                    credential_name,
+                    encryption_context,
+                    get_opts.version,
+                )
+                .await?;
+            if get_opts.noline {
+                print!("{}", render_secret(item.credential_value))
+            } else {
+                println!("{}", render_secret(item.credential_value))
             }
+            Ok(())
         }
         Action::GetAll(get_opts) => {
             let version = get_opts
@@ -233,21 +215,24 @@ fn handle_action(app: CredstashApp, client: CredStashClient) -> () {
                 .clone()
                 .map(|opts| opts.encryption_context)
                 .map_or(vec![], |item| item);
-            let get_future = client.get_all_secrets(table_name, encryption_context, version);
-            match core.run(get_future) {
-                Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
-                Ok(val) => match get_opts {
-                    None => (),
-                    Some(opts) => match opts.clone().export {
-                        ExportOption::Json => render_json_credstash_item(val),
-                        ExportOption::Yaml => render_yaml_credstash_item(val),
-                        ExportOption::Csv => render_csv_credstash_item(val),
-                        ExportOption::DotEnv => render_dotenv_credstash_item(val),
-                    },
+            let val = client
+                .get_all_secrets(table_name, encryption_context, version)
+                .await?;
+            match get_opts {
+                None => (),
+                Some(opts) => match opts.clone().export {
+                    ExportOption::Json => render_json_credstash_item(val),
+                    ExportOption::Yaml => render_yaml_credstash_item(val),
+                    ExportOption::Csv => render_csv_credstash_item(val),
+                    ExportOption::DotEnv => render_dotenv_credstash_item(val),
                 },
             }
+            Ok(())
         }
-        Action::Invalid(msg) => program_exit(&msg),
+        Action::Invalid(msg) => {
+            program_exit(&msg);
+            Ok(())
+        }
     }
 }
 
@@ -677,7 +662,8 @@ fn render_version(item: Option<HashMap<String, AttributeValue>>) -> String {
     })
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let app = CredstashApp::new();
     let region: Option<Region> = {
         app.clone().region.map_or(Some(Region::default()), |item| {
@@ -685,5 +671,9 @@ fn main() {
         })
     };
     let client = CredStashClient::new(app.credential.clone(), region).unwrap();
-    handle_action(app, client);
+    let result = handle_action(app, client).await;
+    match result {
+        Ok(_) => (),
+        Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
+    }
 }
