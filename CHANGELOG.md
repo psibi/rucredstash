@@ -1,3 +1,8 @@
+# v0.6.0
+
+* Migration to async/await
+* Update dependencies for rusoto libraries etc.
+
 # v0.5.0
 
 * Fix encryption context arguments and improve documentation.
