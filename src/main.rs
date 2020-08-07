@@ -374,7 +374,7 @@ impl CredstashApp {
             SubCommand::with_name("list").about("List credentials and their versions");
 
         let put_command = SubCommand::with_name("put")
-            .about("Put a credential from the store")
+            .about("Put a credential into the store")
             .arg(Arg::with_name("credential").help("the name of the credential to store").required(true))
             .arg(Arg::with_name("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
             .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true))

@@ -913,9 +913,11 @@ impl CredStashClient {
                     "contents column value not present".to_string(),
                 ),
             )?)?;
-            let item_hmac = hex::decode(dynamo_hmac.b.as_ref().ok_or(
+            let item_hmac = dynamo_hmac.b.as_ref().map(|hb| hex::decode(hb))
+                .or(dynamo_hmac.s.as_ref().map(|hs| hex::decode(hs)))
+                .ok_or(
                 CredStashClientError::AWSDynamoError("hmac column value not present".to_string()),
-            )?)?;
+            )??;
             let dynamo_name = item
                 .get("name")
                 .ok_or(CredStashClientError::AWSDynamoError(
