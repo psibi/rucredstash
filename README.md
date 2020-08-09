@@ -24,7 +24,7 @@ accessing it.
 
 ``` shellsession
 $ rucredstash --help
-rucredstash 0.6.0
+rucredstash 0.6.1
 Sibi Prabakaran
 A credential/secret storage system
 

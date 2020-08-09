@@ -1,3 +1,9 @@
+# v0.6.1
+
+* Fix compatibility with [credstash](https://github.com/fugue/credstash), when reading secrets written by it
+* Bump rust-toolchain to 1.45.2
+* Fix typo in help message
+
 # v0.6.0
 
 * Migration to async/await
