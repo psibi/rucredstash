@@ -24,7 +24,7 @@ accessing it.
 
 ``` shellsession
 $ rucredstash --help
-rucredstash 0.4
+rucredstash 0.6.1
 Sibi Prabakaran
 A credential/secret storage system
 
@@ -53,7 +53,7 @@ SUBCOMMANDS:
     help      Prints this message or the help of the given subcommand(s)
     keys      List all keys in the store
     list      List credentials and their versions
-    put       Put a credential from the store
+    put       Put a credential into the store
     setup     setup the credential store
 ```
 
