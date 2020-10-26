@@ -8,6 +8,7 @@ use hex::FromHexError;
 use ring;
 use ring::hmac::{sign, Algorithm, Key};
 use rusoto_core::region::Region;
+use rusoto_core::request::TlsError;
 use rusoto_core::{HttpClient, RusotoError};
 use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
 use rusoto_dynamodb::{
@@ -233,11 +234,18 @@ pub enum CredStashClientError {
     HMacMismatch,
     ParseError(String),
     CredentialsError(String),
+    TlsError(String),
 }
 
 impl From<std::num::ParseIntError> for CredStashClientError {
     fn from(error: std::num::ParseIntError) -> Self {
         CredStashClientError::ParseError(error.to_string())
+    }
+}
+
+impl From<TlsError> for CredStashClientError {
+    fn from(error: TlsError) -> Self {
+        CredStashClientError::TlsError(error.to_string())
     }
 }
 
@@ -368,22 +376,15 @@ impl CredStashClient {
             CredStashCredential::DefaultCredentialsProvider => {
                 let provider = DefaultCredentialsProvider::new()?;
                 let provider2 = DefaultCredentialsProvider::new()?;
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new().unwrap(),
-                    provider,
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new().unwrap(), provider2, default_region);
+                let http_client = HttpClient::new()?;
+                let dynamo_client =
+                    DynamoDbClient::new_with(http_client, provider, default_region.clone());
+                let kms_client = KmsClient::new_with(HttpClient::new()?, provider2, default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultAssumeRole((assume_role_arn, mfa_field)) => {
                 let provider = DefaultCredentialsProvider::new()?;
-                let sts = StsClient::new_with(
-                    HttpClient::new().unwrap(),
-                    provider,
-                    default_region.clone(),
-                );
+                let sts = StsClient::new_with(HttpClient::new()?, provider, default_region.clone());
                 let mfa = match mfa_field.clone() {
                     None => None,
                     Some((mfa, _)) => Some(mfa),
@@ -413,13 +414,9 @@ impl CredStashClient {
                         provider2.set_mfa_code(code);
                     }
                 }
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new().unwrap(),
-                    provider,
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new().unwrap(), provider2, default_region);
+                let dynamo_client =
+                    DynamoDbClient::new_with(HttpClient::new()?, provider, default_region.clone());
+                let kms_client = KmsClient::new_with(HttpClient::new()?, provider2, default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultProfile(profile) => {
@@ -432,13 +429,9 @@ impl CredStashClient {
                         provider2.set_profile(pr);
                     }
                 }
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new().unwrap(),
-                    provider,
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new().unwrap(), provider2, default_region);
+                let dynamo_client =
+                    DynamoDbClient::new_with(HttpClient::new()?, provider, default_region.clone());
+                let kms_client = KmsClient::new_with(HttpClient::new()?, provider2, default_region);
                 (dynamo_client, kms_client)
             }
         };
@@ -913,11 +906,14 @@ impl CredStashClient {
                     "contents column value not present".to_string(),
                 ),
             )?)?;
-            let item_hmac = dynamo_hmac.b.as_ref().map(|hb| hex::decode(hb))
+            let item_hmac = dynamo_hmac
+                .b
+                .as_ref()
+                .map(|hb| hex::decode(hb))
                 .or(dynamo_hmac.s.as_ref().map(|hs| hex::decode(hs)))
-                .ok_or(
-                CredStashClientError::AWSDynamoError("hmac column value not present".to_string()),
-            )??;
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "hmac column value not present".to_string(),
+                ))??;
             let dynamo_name = item
                 .get("name")
                 .ok_or(CredStashClientError::AWSDynamoError(

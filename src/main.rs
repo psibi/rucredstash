@@ -9,13 +9,14 @@ use serde_json::map::Map;
 use serde_json::{to_string_pretty, Value};
 use std::clone::Clone;
 use std::collections::HashMap;
+use std::convert::From;
 use std::env;
 use std::ffi::OsString;
 use std::io;
 use std::io::Write;
+use std::option::Option;
 use std::str;
 use std::str::FromStr;
-use std::string::ToString;
 use std::vec::Vec;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -276,23 +277,53 @@ fn render_json_credstash_item(val: Vec<credstash::CredstashItem>) {
             )
         })
         .collect();
-    let result = to_string_pretty(&Value::Object(items)).unwrap();
-    println!("{}", result);
+    let result: Result<String, _> = to_string_pretty(&Value::Object(items));
+    match result {
+        Ok(val) => println!("{}", val),
+        Err(err) => {
+            let err_msg = format!("Serde JSON error: {}", err);
+            program_exit(&err_msg);
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CredStashAppError {
+    VersionError(String),
+    ClapError(String),
+    InsufficientContext(String),
+    InvalidArguments(String),
+}
+
+impl From<clap::Error> for CredStashAppError {
+    fn from(error: clap::Error) -> Self {
+        CredStashAppError::ClapError(error.to_string())
+    }
+}
+
+impl From<std::string::String> for CredStashAppError {
+    fn from(error: std::string::String) -> Self {
+        CredStashAppError::ClapError(error)
+    }
 }
 
 impl CredstashApp {
     fn new() -> Self {
-        Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
+        // Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
+        Self::new_from(std::env::args_os().into_iter()).unwrap()
     }
 
-    fn new_from<I, T>(args: I) -> Result<Self, clap::Error>
+    fn new_from<I, T>(args: I) -> Result<Self, CredStashAppError>
     where
         I: Iterator<Item = T>,
         T: Into<OsString> + Clone,
     {
         let version: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
         let app: App = App::new("rucredstash")
-            .version(version.unwrap())
+            .version(version.map_or(
+                Err("CARGO_PKG_VERSION environment variable not present".to_string()),
+                |val| Ok(val),
+            )?)
             .about("A credential/secret storage system")
             .author("Sibi Prabakaran");
 
@@ -476,7 +507,7 @@ impl CredstashApp {
                     tags.map(|values| values.into_iter().map(|item| item.to_string()).collect());
                 let table_tags: Option<Vec<(String, String)>> = tags_options.map(|item| {
                     item.into_iter()
-                        .filter_map(|item| split_tags_to_tuple(item))
+                        .filter_map(|item| split_tags_to_tuple(item).map_or(None, |val| Some(val)))
                         .collect()
                 });
                 let setup_opts = SetupOpts {
@@ -603,50 +634,52 @@ fn program_exit(msg: &str) {
     std::process::exit(1);
 }
 
-fn split_context_to_tuple(encryption_context: String) -> Option<(String, String)> {
+fn split_context_to_tuple(
+    encryption_context: String,
+) -> Result<(String, String), CredStashAppError> {
     let context: Vec<&str> = encryption_context.split('=').collect();
     match context.len() {
-        0 => None,
+        0 => Err(CredStashAppError::InsufficientContext(
+            "No context supplied".to_string(),
+        )),
         1 => {
             let msg = format!(
                 "error: argument context: {} is not the form of key=value",
                 encryption_context
             );
-            program_exit(&msg);
-            None
+            Err(CredStashAppError::InsufficientContext(msg))
         }
-        2 => Some((context[0].to_string(), context[1].to_string())),
+        2 => Ok((context[0].to_string(), context[1].to_string())),
         _ => {
             let msg = format!(
                 "error: argument context: {} is not the form of key=value",
                 encryption_context
             );
-            program_exit(&msg);
-            None
+            Err(CredStashAppError::InsufficientContext(msg))
         }
     }
 }
 
-fn split_tags_to_tuple(encryption_context: String) -> Option<(String, String)> {
+fn split_tags_to_tuple(encryption_context: String) -> Result<(String, String), CredStashAppError> {
     let context: Vec<&str> = encryption_context.split('=').collect();
     match context.len() {
-        0 => None,
+        0 => Err(CredStashAppError::InvalidArguments(
+            "No arguments passed".to_string(),
+        )),
         1 => {
             let msg = format!(
                 "argument --tags: {} is not the form of key=value",
                 encryption_context
             );
-            program_exit(&msg);
-            None
+            Err(CredStashAppError::InvalidArguments(msg))
         }
-        2 => Some((context[0].to_string(), context[1].to_string())),
+        2 => Ok((context[0].to_string(), context[1].to_string())),
         _ => {
             let msg = format!(
                 "argument --tags: {} is not the form of key=value",
                 encryption_context
             );
-            program_exit(&msg);
-            None
+            Err(CredStashAppError::InvalidArguments(msg))
         }
     }
 }
