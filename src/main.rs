@@ -293,6 +293,9 @@ pub enum CredStashAppError {
     ClapError(String),
     InsufficientContext(String),
     InvalidArguments(String),
+    MissingCredential,
+    MissingCredentialValue,
+    ClientError(credstash::CredStashClientError),
 }
 
 impl From<clap::Error> for CredStashAppError {
@@ -307,10 +310,15 @@ impl From<std::string::String> for CredStashAppError {
     }
 }
 
+impl From<credstash::CredStashClientError> for CredStashAppError {
+    fn from(error: credstash::CredStashClientError) -> Self {
+        CredStashAppError::ClientError(error)
+    }
+}
+
 impl CredstashApp {
-    fn new() -> Self {
-        // Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
-        Self::new_from(std::env::args_os().into_iter()).unwrap()
+    fn new() -> Result<Self, CredStashAppError> {
+        Self::new_from(std::env::args_os().into_iter())
     }
 
     fn new_from<I, T>(args: I) -> Result<Self, CredStashAppError>
@@ -445,10 +453,11 @@ impl CredstashApp {
                     .value_of("credential")
                     .expect("Credential not supplied")
                     .to_string();
-                let context: Option<Vec<_>> = get_matches.values_of("context").map(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).unwrap())
+                let context: Option<Vec<_>> = get_matches.values_of("context").map_or(None, |e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v)))
                         .collect()
                 });
+
                 let encryption_context: Vec<_> = match context {
                     None => vec![],
                     Some(x) => x,
@@ -466,10 +475,11 @@ impl CredstashApp {
             }
             ("getall", None) => Action::GetAll(None),
             ("getall", Some(get_matches)) => {
-                let context: Option<Vec<_>> = get_matches.values_of("context").map(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).unwrap())
+                let context: Option<Vec<_>> = get_matches.values_of("context").map_or(None, |e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v)))
                         .collect()
                 });
+
                 let encryption_context: Vec<_> = match context {
                     None => vec![],
                     Some(x) => x,
@@ -516,9 +526,11 @@ impl CredstashApp {
                 Action::Setup(setup_opts)
             }
             ("put", Some(put_matches)) => {
-                // todo: fix all unwrap
-                let credential_name: String =
-                    put_matches.value_of("credential").unwrap().to_string();
+                let credential_name: String = put_matches
+                    .value_of("credential")
+                    .map_or(Err(CredStashAppError::MissingCredential), |val| {
+                        Ok(val.to_string())
+                    })?;
                 let credential_value: String = {
                     let mut value = String::new();
                     let get_input = put_matches.is_present("prompt");
@@ -531,7 +543,11 @@ impl CredstashApp {
                             .read_line(&mut value)
                             .expect("Failed to read from stdin");
                     } else {
-                        value = put_matches.value_of("value").unwrap().to_string();
+                        value = put_matches
+                            .value_of("value")
+                            .map_or(Err(CredStashAppError::MissingCredentialValue), |val| {
+                                Ok(val.to_string())
+                            })?;
                     }
                     value.trim().to_string()
                 };
@@ -565,8 +581,8 @@ impl CredstashApp {
                     version,
                     digest_algorithm,
                 };
-                let context: Option<Vec<_>> = put_matches.values_of("context").map(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).unwrap())
+                let context: Option<Vec<_>> = put_matches.values_of("context").map_or(None, |e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v)))
                         .collect()
                 });
                 let encryption_context: Vec<_> = match context {
@@ -581,7 +597,11 @@ impl CredstashApp {
                 )
             }
             ("delete", Some(del_matches)) => {
-                let credential: String = del_matches.value_of("credential").unwrap().to_string();
+                let credential: String = del_matches
+                    .value_of("credential")
+                    .map_or(Err(CredStashAppError::MissingCredential), |val| {
+                        Ok(val.to_string())
+                    })?;
                 Action::Delete(credential)
             }
             (subcommand, _) => {
@@ -696,17 +716,14 @@ fn render_version(item: Option<HashMap<String, AttributeValue>>) -> String {
 }
 
 #[tokio::main]
-async fn main() {
-    let app = CredstashApp::new();
+async fn main() -> Result<(), CredStashAppError> {
+    let app = CredstashApp::new()?;
     let region: Option<Region> = {
         app.clone().region.map_or(Some(Region::default()), |item| {
             Some(Region::from_str(&item).expect("Invalid region supplied"))
         })
     };
-    let client = CredStashClient::new(app.credential.clone(), region).unwrap();
-    let result = handle_action(app, client).await;
-    match result {
-        Ok(_) => (),
-        Err(err) => program_exit(format!("Failure: {:?}", err).as_ref()),
-    }
+    let client = CredStashClient::new(app.credential.clone(), region)?;
+    handle_action(app, client).await?;
+    Ok(())
 }
