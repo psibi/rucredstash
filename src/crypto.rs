@@ -31,13 +31,10 @@ impl Crypto {
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
-        let mut c1 = plaintext.clone();
-        let f: &mut [u8] = {
-            let c2: &mut [u8] = c1.as_mut();
-            cipher.apply_keystream(c2);
-            c2
-        };
-        f.to_vec()
+        let mut ptext = plaintext.clone();
+        let c2: &mut [u8] = ptext.as_mut();
+        cipher.apply_keystream(c2);
+        c2.to_vec()
     }
 
     pub fn aes_decrypt_ctr(self, ciphertext: Vec<u8>, key: Vec<u8>) -> Vec<u8> {
