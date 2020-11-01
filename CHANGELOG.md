@@ -1,6 +1,8 @@
 # v0.7.0
 
 * Remove unwrap usage from the library and hence make it more safe.
+* Remove panic usage, new value introduced in the error enum type to
+  cover more conditions.
 
 # v0.6.1
 
