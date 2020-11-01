@@ -33,6 +33,81 @@ use std::vec::Vec;
 
 const PAD_LEN: usize = 19;
 
+/// CredStash client. This Struct internally handles the KMS and
+/// DynamoDB client connections and their credentials. Note that the
+/// client will use the default credentials provider and tls client.
+pub struct CredStashClient {
+    dynamo_client: DynamoDbClient,
+    kms_client: KmsClient,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CredStashCredential {
+    /// Provides AWS credentials from multiple possible sources using a priority order.
+    ///
+    /// The following sources are checked in order for credentials when calling `credentials`:
+    ///
+    /// 1. Environment variables: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+    /// 2. `credential_process` command in the AWS config file, usually located at `~/.aws/config`.
+    /// 3. AWS credentials file. Usually located at `~/.aws/credentials`.
+    /// 4. IAM instance profile. Will only work if running on an EC2 instance with an instance profile/role.
+    ///
+    /// Note that this credential will also automatically refresh the credentials when they expire.
+    DefaultCredentialsProvider,
+    /// Provides AWS credentials from a profile in a credentials file, or from a credential process.
+    DefaultProfile(Option<String>),
+    /// Use STS to assume role. The first argument is the ARN of the
+    /// role to assume. The second tuple consiste of an optional MFA
+    /// hardware device serial number or virtual device ARN and the
+    /// associated MFA code.
+    DefaultAssumeRole((String, Option<(String, String)>)),
+}
+
+/// Represents the Decrypted row for the `credential_name`
+#[derive(Debug, Clone)]
+pub struct CredstashItem {
+    aes_key: Bytes,
+    /// HMAC signing key with digest algorithm and the key value
+    pub hmac_key: Key,
+    /// Credential name which has been stored.
+    pub credential_name: String,
+    /// Decrypted credential value. This corresponds with the `credential_name`.
+    pub credential_value: Vec<u8>,
+    /// HMAC Digest of the encrypted text
+    pub hmac_digest: Vec<u8>,
+    /// Digest algorithm used for computation of HMAC
+    pub digest_algorithm: Algorithm,
+    /// The version of the `CredstashItem`
+    pub version: String,
+    /// Optional comment for the `CredstashItem`
+    pub comment: Option<String>,
+}
+
+/// Represents only the Credential without the decrypted text.
+#[derive(Debug, Clone)]
+pub struct CredstashKey {
+    /// Credential name which has been stored.
+    pub name: String,
+    /// The version of the `CredstashKey`
+    pub version: String,
+    /// Optional comment for the `CredstashKey`
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CredStashClientError {
+    NoKeyFound,
+    AWSDynamoError(String),
+    AWSKMSError(String),
+    CredstashDecodeFalure(DecodeError),
+    CredstashHexFailure(FromHexError),
+    HMacMismatch,
+    ParseError(String),
+    CredentialsError(String),
+    TlsError(String),
+    DigestAlgorithmNotSupported(String),
+}
+
 fn put_helper(
     query_output: GenerateDataKeyResponse,
     digest_algorithm: Algorithm,
@@ -46,26 +121,31 @@ fn put_helper(
         None => return Err(CredStashClientError::NoKeyFound),
         Some(val) => val,
     };
-    let aes_key = hmac_key.split_to(32);
+    let aes_key = hmac_key.split_to(32); // First 32 bytes will be aes_key, remaining hmac_key
     let hmac_ring_key = Key::new(digest_algorithm, hmac_key.as_ref());
     let crypto_context = Crypto::new();
-    let aes_enc = crypto_context.aes_encrypt_ctr(credential_value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
-    let hmac_en = sign(&hmac_ring_key, &aes_enc); // HMAC of encrypted text
-    let ciphertext_blob = query_output
+    let ciphertext =
+        crypto_context.aes_encrypt_ctr(credential_value.as_bytes().to_owned(), aes_key); // Encrypted text of value part
+    let hmac_ciphertext = sign(&hmac_ring_key, &ciphertext); // HMAC of encrypted text
+    let data_key_ciphertext = query_output
         .ciphertext_blob
         .ok_or(CredStashClientError::AWSKMSError(
             "ciphertext_blob is empty".to_string(),
         ))?
         .to_vec();
-    let base64_aes_enc = encode(&aes_enc); // Base64 of encrypted text
-    let base64_cipher_blob = encode(&ciphertext_blob); // Encoding of full key encrypted with master key
-    let hex_hmac = hex::encode(hmac_en);
+    let base64_ciphertext = encode(&ciphertext); // Base64 of encrypted text
+    let base64_data_key_ciphertext = encode(&data_key_ciphertext); // Encoding of full key encrypted with master key
+    let hex_hmac_ciphertext = hex::encode(hmac_ciphertext);
+
     let mut put_item: PutItemInput = Default::default();
     put_item.table_name = table_name;
+
     let mut attr_names = HashMap::new();
     attr_names.insert("#n".to_string(), "name".to_string());
+
     put_item.expression_attribute_names = Some(attr_names);
     put_item.condition_expression = Some("attribute_not_exists(#n)".to_string());
+
     let mut item = HashMap::new();
     let mut item_name = AttributeValue::default();
     item_name.s = Some(credential_name);
@@ -82,13 +162,13 @@ fn put_helper(
         item
     });
     let mut item_key = AttributeValue::default();
-    item_key.s = Some(base64_cipher_blob);
+    item_key.s = Some(base64_data_key_ciphertext);
     nitem.insert("key".to_string(), item_key);
     let mut item_contents = AttributeValue::default();
-    item_contents.s = Some(base64_aes_enc);
+    item_contents.s = Some(base64_ciphertext);
     nitem.insert("contents".to_string(), item_contents);
     let mut item_hmac = AttributeValue::default();
-    item_hmac.b = Some(Bytes::from(hex_hmac));
+    item_hmac.b = Some(Bytes::from(hex_hmac_ciphertext));
     nitem.insert("hmac".to_string(), item_hmac);
     let mut item_digest = AttributeValue::default();
     item_digest.s = Some(get_algorithm(digest_algorithm));
@@ -151,6 +231,16 @@ fn pad_integer(num: u64) -> String {
     }
 }
 
+#[test]
+fn pad_integer_check() {
+    assert_eq!(pad_integer(1), "0000000000000000001".to_string());
+}
+
+#[test]
+fn pad_integer_check_big_num() {
+    assert_eq!(pad_integer(123), "0000000000000000123".to_string());
+}
+
 fn get_algorithm(algorithm: Algorithm) -> String {
     if algorithm == ring::hmac::HMAC_SHA384 {
         return "SHA384".to_string();
@@ -166,16 +256,6 @@ fn get_algorithm(algorithm: Algorithm) -> String {
 }
 
 #[test]
-fn pad_integer_check() {
-    assert_eq!(pad_integer(1), "0000000000000000001".to_string());
-}
-
-#[test]
-fn pad_integer_check_big_num() {
-    assert_eq!(pad_integer(123), "0000000000000000123".to_string());
-}
-
-#[test]
 fn get_algo512_check() {
     assert_eq!(get_algorithm(ring::hmac::HMAC_SHA512), "SHA512".to_string());
 }
@@ -183,58 +263,6 @@ fn get_algo512_check() {
 #[test]
 fn get_algo256_check() {
     assert_eq!(get_algorithm(ring::hmac::HMAC_SHA256), "SHA256".to_string());
-}
-
-/// CredStash client. This Struct internally handles the KMS and
-/// DynamoDB client connections and their credentials. Note that the
-/// client will use the default credentials provider and tls client.
-pub struct CredStashClient {
-    dynamo_client: DynamoDbClient,
-    kms_client: KmsClient,
-}
-
-/// Reprsents the Decrypted row for the `credential_name`
-#[derive(Debug, Clone)]
-pub struct CredstashItem {
-    aes_key: Bytes,
-    /// HMAC signing key with digest algorithm and the key value
-    pub hmac_key: Key,
-    /// Credential name which has been stored.
-    pub credential_name: String,
-    /// Decrypted credential value. This corresponds with the `credential_name`.
-    pub credential_value: Vec<u8>,
-    /// HMAC Digest of the encrypted text
-    pub hmac_digest: Vec<u8>,
-    /// Digest algorithm used for computation of HMAC
-    pub digest_algorithm: Algorithm,
-    /// The version of the `CredstashItem`
-    pub version: String,
-    /// Optional comment for the `CredstashItem`
-    pub comment: Option<String>,
-}
-
-/// Represents only the Credential without the decrypted text.
-#[derive(Debug, Clone)]
-pub struct CredstashKey {
-    /// Credential name which has been stored.
-    pub name: String,
-    /// The version of the `CredstashKey`
-    pub version: String,
-    /// Optional comment for the `CredstashKey`
-    pub comment: Option<String>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum CredStashClientError {
-    NoKeyFound,
-    AWSDynamoError(String),
-    AWSKMSError(String),
-    CredstashDecodeFalure(DecodeError),
-    CredstashHexFailure(FromHexError),
-    HMacMismatch,
-    ParseError(String),
-    CredentialsError(String),
-    TlsError(String),
 }
 
 impl From<std::num::ParseIntError> for CredStashClientError {
@@ -311,8 +339,7 @@ impl From<RusotoError<ScanError>> for CredStashClientError {
 
 impl From<RusotoError<DecryptError>> for CredStashClientError {
     fn from(error: RusotoError<DecryptError>) -> Self {
-        let err = format!("{:?}", error);
-        CredStashClientError::AWSKMSError(err)
+        CredStashClientError::AWSKMSError(error.to_string())
     }
 }
 
@@ -335,28 +362,6 @@ impl From<CredentialsError> for CredStashClientError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum CredStashCredential {
-    /// Provides AWS credentials from multiple possible sources using a priority order.
-    ///
-    /// The following sources are checked in order for credentials when calling `credentials`:
-    ///
-    /// 1. Environment variables: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
-    /// 2. `credential_process` command in the AWS config file, usually located at `~/.aws/config`.
-    /// 3. AWS credentials file. Usually located at `~/.aws/credentials`.
-    /// 4. IAM instance profile. Will only work if running on an EC2 instance with an instance profile/role.    
-    ///
-    /// Note that this credential will also automatically refresh the credentials when they expire.
-    DefaultCredentialsProvider,
-    /// Provides AWS credentials from a profile in a credentials file, or from a credential process.
-    DefaultProfile(Option<String>),
-    /// Use STS to assume role. The first argument is the ARN of the
-    /// role to assume. The second tuple consiste of an optional MFA
-    /// hardware device serial number or virtual device ARN and the
-    /// associated MFA code.
-    DefaultAssumeRole((String, Option<(String, String)>)),
-}
-
 impl CredStashClient {
     /// Creates a new client backend. Note that this uses the default
     /// AWS credential provider and the tls client.
@@ -374,22 +379,29 @@ impl CredStashClient {
         let default_region = region.map_or(Region::default(), |item| item);
         let provider = match credential {
             CredStashCredential::DefaultCredentialsProvider => {
-                let provider = DefaultCredentialsProvider::new()?;
-                let provider2 = DefaultCredentialsProvider::new()?;
-                let http_client = HttpClient::new()?;
-                let dynamo_client =
-                    DynamoDbClient::new_with(http_client, provider, default_region.clone());
-                let kms_client = KmsClient::new_with(HttpClient::new()?, provider2, default_region);
+                let dynamo_client = DynamoDbClient::new_with(
+                    HttpClient::new()?,
+                    DefaultCredentialsProvider::new()?,
+                    default_region.clone(),
+                );
+                let kms_client = KmsClient::new_with(
+                    HttpClient::new()?,
+                    DefaultCredentialsProvider::new()?,
+                    default_region,
+                );
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultAssumeRole((assume_role_arn, mfa_field)) => {
-                let provider = DefaultCredentialsProvider::new()?;
-                let sts = StsClient::new_with(HttpClient::new()?, provider, default_region.clone());
+                let sts = StsClient::new_with(
+                    HttpClient::new()?,
+                    DefaultCredentialsProvider::new()?,
+                    default_region.clone(),
+                );
                 let mfa = match mfa_field.clone() {
                     None => None,
                     Some((mfa, _)) => Some(mfa),
                 };
-                let mut provider = StsAssumeRoleSessionCredentialsProvider::new(
+                let mut dynamo_provider = StsAssumeRoleSessionCredentialsProvider::new(
                     sts.clone(),
                     assume_role_arn.clone(),
                     "default".to_owned(),
@@ -398,7 +410,7 @@ impl CredStashClient {
                     None,
                     mfa.clone(),
                 );
-                let mut provider2 = StsAssumeRoleSessionCredentialsProvider::new(
+                let mut kms_provider = StsAssumeRoleSessionCredentialsProvider::new(
                     sts,
                     assume_role_arn,
                     "default".to_owned(),
@@ -410,28 +422,34 @@ impl CredStashClient {
                 match mfa_field {
                     None => (),
                     Some((_, code)) => {
-                        provider.set_mfa_code(code.clone());
-                        provider2.set_mfa_code(code);
+                        dynamo_provider.set_mfa_code(code.clone());
+                        kms_provider.set_mfa_code(code);
                     }
                 }
-                let dynamo_client =
-                    DynamoDbClient::new_with(HttpClient::new()?, provider, default_region.clone());
-                let kms_client = KmsClient::new_with(HttpClient::new()?, provider2, default_region);
+                let dynamo_client = DynamoDbClient::new_with(
+                    HttpClient::new()?,
+                    dynamo_provider,
+                    default_region.clone(),
+                );
+                let kms_client =
+                    KmsClient::new_with(HttpClient::new()?, kms_provider, default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultProfile(profile) => {
-                let mut provider = ProfileProvider::new()?;
-                let mut provider2 = ProfileProvider::new()?;
+                let mut profile_provider = ProfileProvider::new()?;
                 match profile {
                     None => (),
                     Some(pr) => {
-                        provider.set_profile(pr.clone());
-                        provider2.set_profile(pr);
+                        profile_provider.set_profile(pr);
                     }
                 }
-                let dynamo_client =
-                    DynamoDbClient::new_with(HttpClient::new()?, provider, default_region.clone());
-                let kms_client = KmsClient::new_with(HttpClient::new()?, provider2, default_region);
+                let dynamo_client = DynamoDbClient::new_with(
+                    HttpClient::new()?,
+                    profile_provider.clone(),
+                    default_region.clone(),
+                );
+                let kms_client =
+                    KmsClient::new_with(HttpClient::new()?, profile_provider, default_region);
                 (dynamo_client, kms_client)
             }
         };
@@ -525,9 +543,9 @@ impl CredStashClient {
             Some(Some(c)) => Some(c.to_string()),
         };
         Ok(CredstashKey {
-            name: name,
-            version: version,
-            comment: comment,
+            name,
+            version,
+            comment,
         })
     }
 
@@ -827,8 +845,7 @@ impl CredStashClient {
         encryption_context: Vec<(String, String)>,
         version: Option<u64>,
     ) -> Result<Vec<CredstashItem>, CredStashClientError> {
-        let table = table_name.clone();
-        let credstash_keys: Vec<CredstashKey> = self.list_secrets(table).await?;
+        let credstash_keys: Vec<CredstashKey> = self.list_secrets(table_name.clone()).await?;
         let items = join_all(credstash_keys.into_iter().map(|item| {
             self.get_secret(
                 table_name.clone(),
@@ -848,99 +865,69 @@ impl CredStashClient {
         query_output: Option<Vec<HashMap<String, AttributeValue>>>,
         encryption_context: Vec<(String, String)>,
     ) -> Result<CredstashItem, CredStashClientError> {
-        fn aux(
-            items: Option<Vec<HashMap<String, AttributeValue>>>,
-        ) -> Result<
-            (
-                AttributeValue,
-                Vec<u8>,
-                Vec<u8>,
-                Vec<u8>,
-                AttributeValue,
-                AttributeValue,
-            ),
-            CredStashClientError,
-        > {
-            let dynamo_result = items.ok_or(CredStashClientError::AWSDynamoError(
-                "items column is missing".to_string(),
-            ))?;
-            let item: HashMap<String, AttributeValue> =
-                dynamo_result
-                    .into_iter()
-                    .nth(0)
-                    .ok_or(CredStashClientError::AWSDynamoError(
-                        "items is Empty".to_string(),
-                    ))?;
-            let dynamo_key: &AttributeValue = item.get("key").ok_or(
-                CredStashClientError::AWSDynamoError("key column is missing".to_string()),
-            )?;
-            let dynamo_contents: &AttributeValue =
-                item.get("contents")
-                    .ok_or(CredStashClientError::AWSDynamoError(
-                        "key column is missing".to_string(),
-                    ))?;
-            let dynamo_hmac: &AttributeValue =
-                item.get("hmac")
-                    .ok_or(CredStashClientError::AWSDynamoError(
-                        "hmac column is missing".to_string(),
-                    ))?;
-            let dynamo_version: &AttributeValue =
-                item.get("version")
-                    .ok_or(CredStashClientError::AWSDynamoError(
-                        "version column is missing".to_string(),
-                    ))?;
-            let dynamo_digest: &AttributeValue =
-                item.get("digest")
-                    .ok_or(CredStashClientError::AWSDynamoError(
-                        "digest column is missing".to_string(),
-                    ))?;
-            let key: &String =
-                dynamo_key
-                    .s
-                    .as_ref()
-                    .ok_or(CredStashClientError::AWSDynamoError(
-                        "key column value not present".to_string(),
-                    ))?;
-            let item_contents = decode(dynamo_contents.s.as_ref().ok_or(
-                CredStashClientError::AWSDynamoError(
-                    "contents column value not present".to_string(),
-                ),
-            )?)?;
-            let item_hmac = dynamo_hmac
-                .b
-                .as_ref()
-                .map(|hb| hex::decode(hb))
-                .or(dynamo_hmac.s.as_ref().map(|hs| hex::decode(hs)))
+        let dynamo_result: Vec<_> = query_output.ok_or(CredStashClientError::AWSDynamoError(
+            "items column is missing".to_string(),
+        ))?;
+        let item: HashMap<String, AttributeValue> =
+            dynamo_result
+                .into_iter()
+                .nth(0)
                 .ok_or(CredStashClientError::AWSDynamoError(
-                    "hmac column value not present".to_string(),
-                ))??;
-            let dynamo_name = item
-                .get("name")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "name column is missing".to_string(),
+                    "items is Empty".to_string(),
                 ))?;
-            let decoded_key: Vec<u8> = decode(key)?;
-            Ok((
-                dynamo_name.to_owned(),
-                decoded_key,
-                item_contents,
-                item_hmac,
-                dynamo_digest.to_owned(),
-                dynamo_version.to_owned(),
-            ))
-        }
-        let aux_result = aux(query_output)?;
-
-        let (dynamo_name, decoded_key, item_contents, item_hmac, dynamo_digest, dynamo_version) =
-            aux_result;
+        let dynamo_key: &AttributeValue = item.get("key").ok_or(
+            CredStashClientError::AWSDynamoError("key column is missing".to_string()),
+        )?;
+        let dynamo_contents: &AttributeValue =
+            item.get("contents")
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "key column is missing".to_string(),
+                ))?;
+        let dynamo_hmac: &AttributeValue =
+            item.get("hmac")
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "hmac column is missing".to_string(),
+                ))?;
+        let dynamo_version: &AttributeValue =
+            item.get("version")
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "version column is missing".to_string(),
+                ))?;
+        let dynamo_digest: &AttributeValue =
+            item.get("digest")
+                .ok_or(CredStashClientError::AWSDynamoError(
+                    "digest column is missing".to_string(),
+                ))?;
+        let key: &String = dynamo_key
+            .s
+            .as_ref()
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "key column value not present".to_string(),
+            ))?;
+        let item_contents = decode(dynamo_contents.s.as_ref().ok_or(
+            CredStashClientError::AWSDynamoError("contents column value not present".to_string()),
+        )?)?;
+        let item_hmac = dynamo_hmac
+            .b
+            .as_ref()
+            .map(|hb| hex::decode(hb))
+            .or(dynamo_hmac.s.as_ref().map(|hs| hex::decode(hs)))
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "hmac column value not present".to_string(),
+            ))??;
+        let dynamo_name = item
+            .get("name")
+            .ok_or(CredStashClientError::AWSDynamoError(
+                "name column is missing".to_string(),
+            ))?;
+        let decoded_key: Vec<u8> = decode(key)?;
         let algorithm = dynamo_digest
             .s
             .as_ref()
             .to_owned()
-            .map_or(ring::hmac::HMAC_SHA256, |item| {
+            .map_or(Ok(ring::hmac::HMAC_SHA256), |item| {
                 to_algorithm(item.to_owned())
-            });
-        // todo: how come credstash has better error message ?
+            })?;
         let (hmac_key, aes_key) = self
             .decrypt_via_kms(algorithm.clone(), decoded_key, encryption_context)
             .await?;
@@ -1008,7 +995,7 @@ impl CredStashClient {
         attr_values.insert(":nameValue".to_string(), str_attr);
         query.expression_attribute_values = Some(attr_values.clone());
         query.table_name = table_name.clone();
-        // Have a different logic for version
+
         let item = match version {
             None => {
                 let dynamo_result = self.dynamo_client.query(query).await?;
@@ -1079,12 +1066,15 @@ impl CredStashClient {
     }
 }
 
-fn to_algorithm(digest: String) -> Algorithm {
+fn to_algorithm(digest: String) -> Result<Algorithm, CredStashClientError> {
     match digest.as_ref() {
-        "SHA1" => ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
-        "SHA256" => ring::hmac::HMAC_SHA256,
-        "SHA384" => ring::hmac::HMAC_SHA384,
-        "SHA512" => ring::hmac::HMAC_SHA512,
-        _ => panic!("Unsupported digest algorithm: {}", digest),
+        "SHA1" => Ok(ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY),
+        "SHA256" => Ok(ring::hmac::HMAC_SHA256),
+        "SHA384" => Ok(ring::hmac::HMAC_SHA384),
+        "SHA512" => Ok(ring::hmac::HMAC_SHA512),
+        _ => Err(CredStashClientError::DigestAlgorithmNotSupported(format!(
+            "Unsupported digest algorithm: {}",
+            digest
+        ))),
     }
 }

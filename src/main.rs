@@ -1,4 +1,4 @@
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, ErrorKind::*, SubCommand};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
 use ring;
@@ -27,28 +27,19 @@ struct CredstashApp {
     action: Action,
 }
 
-fn render_secret(secret: Vec<u8>) -> String {
-    match str::from_utf8(&secret) {
-        Ok(v) => v.to_string(),
-        Err(err) => panic!("Decode failure: {}", err),
-    }
-}
-
-fn render_comment(comment: Option<String>) -> String {
-    match comment {
-        None => "".to_string(),
-        Some(val) => val,
-    }
-}
-
-fn to_algorithm(digest: String) -> Algorithm {
-    match digest.as_ref() {
-        "SHA1" => ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
-        "SHA256" => ring::hmac::HMAC_SHA256,
-        "SHA384" => ring::hmac::HMAC_SHA384,
-        "SHA512" => ring::hmac::HMAC_SHA512,
-        _ => panic!("Unsupported digest algorithm: {}", digest),
-    }
+#[derive(Debug)]
+pub enum CredStashAppError {
+    VersionError(String),
+    ClapError(clap::Error),
+    MissingEnv(String),
+    InsufficientContext(String),
+    InvalidArguments(String),
+    MissingCredential,
+    MissingCredentialValue,
+    DigestAlgorithmNotSupported(String),
+    ClientError(credstash::CredStashClientError),
+    InvalidAction(String),
+    ParseError(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -102,6 +93,36 @@ enum Action {
     Invalid(String),
 }
 
+fn render_secret(secret: Vec<u8>) -> Result<String, CredStashAppError> {
+    match str::from_utf8(&secret) {
+        Ok(v) => Ok(v.to_string()),
+        Err(err) => Err(CredStashAppError::ParseError(format!(
+            "Decode failure: {}",
+            err
+        ))),
+    }
+}
+
+fn render_comment(comment: Option<String>) -> String {
+    match comment {
+        None => "".to_string(),
+        Some(val) => val,
+    }
+}
+
+fn to_algorithm(digest: String) -> Result<Algorithm, CredStashAppError> {
+    match digest.as_ref() {
+        "SHA1" => Ok(ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY),
+        "SHA256" => Ok(ring::hmac::HMAC_SHA256),
+        "SHA384" => Ok(ring::hmac::HMAC_SHA384),
+        "SHA512" => Ok(ring::hmac::HMAC_SHA512),
+        _ => Err(CredStashAppError::DigestAlgorithmNotSupported(format!(
+            "Unsupported digest algorithm: {}",
+            digest
+        ))),
+    }
+}
+
 fn get_table_name(table_name: Option<String>) -> String {
     table_name.map_or("credential-store".to_string(), |name| name)
 }
@@ -109,7 +130,7 @@ fn get_table_name(table_name: Option<String>) -> String {
 async fn handle_action(
     app: CredstashApp,
     client: CredStashClient,
-) -> Result<(), credstash::CredStashClientError> {
+) -> Result<(), CredStashAppError> {
     let table_name = get_table_name(app.table_name);
     match app.action {
         Action::Put(credential_name, credential_value, encryption_context, put_opts) => {
@@ -201,9 +222,9 @@ async fn handle_action(
                 )
                 .await?;
             if get_opts.noline {
-                print!("{}", render_secret(item.credential_value))
+                print!("{}", render_secret(item.credential_value)?)
             } else {
-                println!("{}", render_secret(item.credential_value))
+                println!("{}", render_secret(item.credential_value)?)
             }
             Ok(())
         }
@@ -222,90 +243,74 @@ async fn handle_action(
             match get_opts {
                 None => (),
                 Some(opts) => match opts.clone().export {
-                    ExportOption::Json => render_json_credstash_item(val),
-                    ExportOption::Yaml => render_yaml_credstash_item(val),
-                    ExportOption::Csv => render_csv_credstash_item(val),
-                    ExportOption::DotEnv => render_dotenv_credstash_item(val),
+                    ExportOption::Json => render_json_credstash_item(val)?,
+                    ExportOption::Yaml => render_yaml_credstash_item(val)?,
+                    ExportOption::Csv => render_csv_credstash_item(val)?,
+                    ExportOption::DotEnv => render_dotenv_credstash_item(val)?,
                 },
             }
             Ok(())
         }
-        Action::Invalid(msg) => {
-            program_exit(&msg);
-            Ok(())
-        }
+        Action::Invalid(msg) => Err(CredStashAppError::InvalidAction(format!("{}", msg))),
     }
 }
 
-fn render_csv_credstash_item(val: Vec<credstash::CredstashItem>) {
+fn render_csv_credstash_item(val: Vec<credstash::CredstashItem>) -> Result<(), CredStashAppError> {
     for item in val {
         println!(
             "{},{}",
             item.credential_name,
-            render_secret(item.credential_value)
+            render_secret(item.credential_value)?
         )
     }
+    Ok(())
 }
 
-fn render_dotenv_credstash_item(val: Vec<credstash::CredstashItem>) {
+fn render_dotenv_credstash_item(
+    val: Vec<credstash::CredstashItem>,
+) -> Result<(), CredStashAppError> {
     for item in val {
         println!(
             "{}='{}'",
             item.credential_name,
-            render_secret(item.credential_value)
+            render_secret(item.credential_value)?
         )
     }
+    Ok(())
 }
 
-fn render_yaml_credstash_item(val: Vec<credstash::CredstashItem>) {
+fn render_yaml_credstash_item(val: Vec<credstash::CredstashItem>) -> Result<(), CredStashAppError> {
     for item in val {
         println!(
             "{}: {}",
             item.credential_name,
-            render_secret(item.credential_value)
+            render_secret(item.credential_value)?
         )
     }
+    Ok(())
 }
 
-fn render_json_credstash_item(val: Vec<credstash::CredstashItem>) {
-    let items: Map<_, _> = val
-        .into_iter()
-        .map(|item| {
-            (
-                item.credential_name,
-                Value::String(render_secret(item.credential_value)),
-            )
-        })
-        .collect();
+fn render_json_credstash_item(val: Vec<credstash::CredstashItem>) -> Result<(), CredStashAppError> {
+    let mut items: Map<_, _> = Map::new();
+    for item in val {
+        let credential_value = render_secret(item.credential_value)?;
+        items.insert(item.credential_name, Value::String(credential_value));
+    }
     let result: Result<String, _> = to_string_pretty(&Value::Object(items));
     match result {
-        Ok(val) => println!("{}", val),
+        Ok(val) => {
+            println!("{}", val);
+            Ok(())
+        }
         Err(err) => {
             let err_msg = format!("Serde JSON error: {}", err);
-            program_exit(&err_msg);
+            Err(CredStashAppError::ParseError(err_msg))
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum CredStashAppError {
-    VersionError(String),
-    ClapError(String),
-    InsufficientContext(String),
-    InvalidArguments(String),
-    MissingCredential,
-    MissingCredentialValue,
-    ClientError(credstash::CredStashClientError),
-}
-
 impl From<clap::Error> for CredStashAppError {
     fn from(error: clap::Error) -> Self {
-        CredStashAppError::ClapError(error.to_string())
-    }
-}
-
-impl From<std::string::String> for CredStashAppError {
-    fn from(error: std::string::String) -> Self {
         CredStashAppError::ClapError(error)
     }
 }
@@ -329,7 +334,9 @@ impl CredstashApp {
         let version: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
         let app: App = App::new("rucredstash")
             .version(version.map_or(
-                Err("CARGO_PKG_VERSION environment variable not present".to_string()),
+                Err(CredStashAppError::MissingEnv(
+                    "CARGO_PKG_VERSION environment variable not present".to_string(),
+                )),
                 |val| Ok(val),
             )?)
             .about("A credential/secret storage system")
@@ -566,15 +573,10 @@ impl CredstashApp {
                         Either::Left(version_option)
                     }
                 };
-                let digest_algorithm = {
-                    let algorithm = put_matches
-                        .value_of("digest")
-                        .map(|e| to_algorithm(e.to_string()));
-                    match algorithm {
-                        Some(algo) => algo,
-                        None => ring::hmac::HMAC_SHA256,
-                    }
-                };
+                let digest_algorithm = put_matches
+                    .value_of("digest")
+                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e| to_algorithm(e.to_string()))?;
+
                 let put_opts = PutOpts {
                     key_id,
                     comment,
@@ -649,11 +651,6 @@ impl CredstashApp {
     }
 }
 
-fn program_exit(msg: &str) {
-    eprintln!("{}", msg);
-    std::process::exit(1);
-}
-
 fn split_context_to_tuple(
     encryption_context: String,
 ) -> Result<(String, String), CredStashAppError> {
@@ -715,15 +712,83 @@ fn render_version(item: Option<HashMap<String, AttributeValue>>) -> String {
     })
 }
 
+fn handle_error(error: CredStashAppError) {
+    match error {
+        CredStashAppError::VersionError(error_message) => program_exit(&error_message),
+        CredStashAppError::ClapError(clap_error) => {
+            if clap_error.kind == HelpDisplayed || clap_error.kind == VersionDisplayed {
+                eprintln!("{}", &clap_error.to_string())
+            } else {
+                program_exit(&clap_error.to_string())
+            }
+        }
+        CredStashAppError::MissingEnv(error_message) => program_exit(&error_message),
+        CredStashAppError::InsufficientContext(error_message) => program_exit(&error_message),
+        CredStashAppError::InvalidArguments(error_message) => program_exit(&error_message),
+        CredStashAppError::MissingCredential => program_exit("Missing credentials"),
+        CredStashAppError::MissingCredentialValue => program_exit("Missing credential value"),
+        CredStashAppError::DigestAlgorithmNotSupported(error_message) => {
+            program_exit(&error_message)
+        }
+        CredStashAppError::ClientError(credstash_error) => handle_credstash_error(credstash_error),
+        CredStashAppError::InvalidAction(error_message) => program_exit(&error_message),
+        CredStashAppError::ParseError(error_message) => program_exit(&error_message),
+    }
+}
+
+fn handle_credstash_error(error: credstash::CredStashClientError) {
+    match error {
+        credstash::CredStashClientError::NoKeyFound => {
+            program_exit("No key found in the remote DynamoDB")
+        }
+        credstash::CredStashClientError::AWSDynamoError(error_message) => {
+            program_exit(&error_message)
+        }
+        credstash::CredStashClientError::AWSKMSError(error_message) => program_exit(&error_message),
+        credstash::CredStashClientError::CredstashDecodeFalure(error_message) => {
+            program_exit(&error_message.to_string())
+        }
+        credstash::CredStashClientError::CredstashHexFailure(error_message) => {
+            program_exit(&error_message.to_string())
+        }
+        credstash::CredStashClientError::HMacMismatch => {
+            program_exit("No key found in the remote DynamoDB")
+        }
+        credstash::CredStashClientError::ParseError(error_message) => program_exit(&error_message),
+        credstash::CredStashClientError::CredentialsError(error_message) => {
+            program_exit(&error_message)
+        }
+
+        credstash::CredStashClientError::TlsError(error_message) => program_exit(&error_message),
+        credstash::CredStashClientError::DigestAlgorithmNotSupported(error_message) => {
+            program_exit(&error_message)
+        }
+    }
+}
+
+fn program_exit(msg: &str) {
+    eprintln!("{}", msg);
+    std::process::exit(1);
+}
+
 #[tokio::main]
-async fn main() -> Result<(), CredStashAppError> {
-    let app = CredstashApp::new()?;
-    let region: Option<Region> = {
-        app.clone().region.map_or(Some(Region::default()), |item| {
-            Some(Region::from_str(&item).expect("Invalid region supplied"))
-        })
-    };
-    let client = CredStashClient::new(app.credential.clone(), region)?;
-    handle_action(app, client).await?;
-    Ok(())
+async fn main() {
+    let credstash_app = CredstashApp::new();
+    match credstash_app {
+        Ok(app) => {
+            let region: Option<Region> = {
+                app.clone().region.map_or(Some(Region::default()), |item| {
+                    Some(Region::from_str(&item).expect("Invalid region supplied"))
+                })
+            };
+            match CredStashClient::new(app.credential.clone(), region) {
+                Ok(client) => match handle_action(app, client).await {
+                    Ok(()) => (),
+                    Err(error) => handle_error(error),
+                },
+                Err(error) => handle_error(CredStashAppError::ClientError(error)),
+            }
+        }
+        Err(error) => handle_error(error),
+    }
 }
