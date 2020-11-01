@@ -95,13 +95,9 @@ $ ./test.sh
 
 * Provide cli subcommand to create CMK
   - This feature isn't present in the original credstash
-* Provide cli subcommand to delete all credentials
-  - This feature isn't present in the original credstash
 * putall subcommand
   - I dislike the default behavior of credstash. So this is one place
     where our behavior will diverge.
-* async/await
-  - https://github.com/rusoto/rusoto/issues/1475
 
 ## Reference
 

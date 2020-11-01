@@ -1,3 +1,7 @@
+# v0.7.0
+
+* Remove unwrap usage from the library and hence make it more safe.
+
 # v0.6.1
 
 * Fix compatibility with [credstash](https://github.com/fugue/credstash), when reading secrets written by it

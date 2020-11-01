@@ -4,7 +4,9 @@ set -e
 
 cargo build
 
-CREDSTASH=../target/debug/rucredstash
+CREDSTASH=rucredstash
+
+$CREDSTASH --version
 
 $CREDSTASH put hi bye
 $CREDSTASH get hi
