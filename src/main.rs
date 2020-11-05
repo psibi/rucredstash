@@ -7,17 +7,12 @@ use rusoto_core::region::Region;
 use rusoto_dynamodb::AttributeValue;
 use serde_json::map::Map;
 use serde_json::{to_string_pretty, Value};
-use std::clone::Clone;
 use std::collections::HashMap;
-use std::convert::From;
 use std::env;
 use std::ffi::OsString;
 use std::io;
 use std::io::Write;
-use std::option::Option;
-use std::str;
-use std::str::FromStr;
-use std::vec::Vec;
+use std::str::{self, FromStr};
 
 #[derive(Debug, PartialEq, Clone)]
 struct CredstashApp {
@@ -169,8 +164,7 @@ async fn handle_action(
         Action::List => {
             let items = client.list_secrets(table_name).await?;
             let max_name_len: Vec<usize> = items
-                .clone()
-                .into_iter()
+                .iter()
                 .map(|item| item.name.len())
                 .collect();
             let max_len = max_name_len
@@ -232,17 +226,17 @@ async fn handle_action(
             let version = get_opts
                 .clone()
                 .map(|opts| opts.version)
-                .map_or(None, |item| item);
+                .unwrap_or(None);
             let encryption_context = get_opts
                 .clone()
                 .map(|opts| opts.encryption_context)
-                .map_or(vec![], |item| item);
+                .unwrap_or(vec![]);
             let val = client
                 .get_all_secrets(table_name, encryption_context, version)
                 .await?;
             match get_opts {
                 None => (),
-                Some(opts) => match opts.clone().export {
+                Some(opts) => match opts.export {
                     ExportOption::Json => render_json_credstash_item(val)?,
                     ExportOption::Yaml => render_yaml_credstash_item(val)?,
                     ExportOption::Csv => render_csv_credstash_item(val)?,

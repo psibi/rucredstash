@@ -31,19 +31,39 @@ impl Crypto {
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
-        let mut plain_text = plaintext.clone();
-        let cipher_text: &mut [u8] = plain_text.as_mut();
-        cipher.apply_keystream(cipher_text);
-        cipher_text.to_vec()
+        let mut cipher_text = plaintext;
+        cipher.apply_keystream(cipher_text.as_mut_slice());
+        cipher_text
     }
 
-    pub fn aes_decrypt_ctr(self, ciphertext: Vec<u8>, key: Vec<u8>) -> Vec<u8> {
+    pub fn aes_decrypt_ctr(self, ciphertext: Vec<u8>, key: bytes::Bytes) -> Vec<u8> {
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key[0..]);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
-        let mut cipher_text = ciphertext.clone();
-        let plain_text: &mut [u8] = cipher_text.as_mut();
-        cipher.apply_keystream(plain_text);
-        plain_text.to_vec()
+        let mut plain_text = ciphertext;
+        cipher.apply_keystream(plain_text.as_mut_slice());
+        plain_text
     }
+}
+
+#[test]
+fn aes_encrypt_check() {
+    let crypto = Crypto::new();
+    let key = bytes::Bytes::from_static(b"secretkeysecretkeysecretkeysecre");
+    let plaintext: Vec<u8> = "helloworld".as_bytes().to_vec();
+    assert_eq!(
+        crypto.aes_encrypt_ctr(plaintext, key),
+        vec![248, 192, 8, 240, 148, 247, 69, 193, 93, 58]
+    );
+}
+
+#[test]
+fn aes_decrypt_check() {
+    let crypto = Crypto::new();
+    let key = bytes::Bytes::from_static(b"secretkeysecretkeysecretkeysecre");
+    let ciphertext: Vec<u8> = vec![248, 192, 8, 240, 148, 247, 69, 193, 93, 58];
+    assert_eq!(
+        crypto.aes_decrypt_ctr(ciphertext, key),
+        "helloworld".as_bytes().to_vec()
+    );
 }

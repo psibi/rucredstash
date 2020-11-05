@@ -24,12 +24,7 @@ use rusoto_kms::{
     GenerateDataKeyResponse, Kms, KmsClient,
 };
 use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
-use std::clone::Clone;
 use std::collections::HashMap;
-use std::iter::Iterator;
-use std::result::Result;
-use std::string::String;
-use std::vec::Vec;
 
 const PAD_LEN: usize = 19;
 
@@ -481,7 +476,7 @@ impl CredStashClient {
             attr_names.insert("#c".to_string(), "comment".to_string());
             scan_query.expression_attribute_names = Some(attr_names);
             scan_query.table_name = table_name.clone();
-            if last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
+            if last_eval_key.as_ref().map_or(false, |hmap| !hmap.is_empty()) {
                 scan_query.exclusive_start_key = last_eval_key;
             }
 
@@ -492,7 +487,7 @@ impl CredStashClient {
                     let new_vecs: Vec<CredstashKey> = items
                         .into_iter()
                         .map(|elem| self.attribute_to_attribute_item(elem))
-                        .filter_map(|item| item.ok())
+                        .filter_map(Result::ok)
                         .collect();
                     new_vecs
                 }
@@ -666,7 +661,7 @@ impl CredStashClient {
             attr_values.insert(":nameValue".to_string(), str_attr);
             query.expression_attribute_values = Some(attr_values);
             query.table_name = table_name.clone();
-            if last_eval_key.clone().map_or(false, |hmap| !hmap.is_empty()) {
+            if last_eval_key.as_ref().map_or(false, |hmap| !hmap.is_empty()) {
                 query.exclusive_start_key = last_eval_key;
             }
             let dynamo_result = self.dynamo_client.query(query).await?;
@@ -936,7 +931,7 @@ impl CredStashClient {
         if verified == false {
             return Err(CredStashClientError::HMacMismatch);
         }
-        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.to_vec().clone());
+        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.clone());
         Ok(CredstashItem {
             aes_key: aes_key,
             hmac_key: hmac_key,
