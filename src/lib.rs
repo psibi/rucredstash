@@ -936,7 +936,7 @@ impl CredStashClient {
         if verified == false {
             return Err(CredStashClientError::HMacMismatch);
         }
-        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.to_vec().clone());
+        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.clone());
         Ok(CredstashItem {
             aes_key: aes_key,
             hmac_key: hmac_key,
