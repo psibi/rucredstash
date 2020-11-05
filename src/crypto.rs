@@ -31,7 +31,7 @@ impl Crypto {
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
-        let mut cipher_text = Vec::with_capacity(plaintext.len());
+        let mut cipher_text = plaintext;
         cipher.apply_keystream(cipher_text.as_mut_slice());
         cipher_text
     }
@@ -40,7 +40,7 @@ impl Crypto {
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key[0..]);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
         let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
-        let mut plain_text = Vec::with_capacity(ciphertext.len());
+        let mut plain_text = ciphertext;
         cipher.apply_keystream(plain_text.as_mut_slice());
         plain_text
     }
