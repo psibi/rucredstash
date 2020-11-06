@@ -516,7 +516,6 @@ impl CredstashApp {
             .short("a")
             .value_name("ARN")
             .help("AWS IAM ARN for AssumeRole")
-            .requires("mfa")
             .conflicts_with("profile");
 
         let mfa_arg = Arg::with_name("mfa")

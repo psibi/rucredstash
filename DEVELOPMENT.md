@@ -100,6 +100,12 @@ $ ./test.sh
   - This feature isn't present in the original credstash
 * Remove all the usage of the `expect()` method in the main.rs file.
 
+## Checklist before a new release
+
+- [ ] Update help message in README
+- [ ] Run *cargo clippy* (Todo: Integrate with CI)
+- [ ] Ran integration tests with AWS infrastructure
+
 ## Reference
 
 * https://docs.rs/ring/0.16.9/ring/hmac/struct.Key.html
