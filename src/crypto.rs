@@ -1,5 +1,4 @@
-use aes_ctr::stream_cipher::generic_array::GenericArray;
-use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
+use aes_ctr::stream_cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher};
 use aes_ctr::Aes256Ctr;
 use ring::hmac;
 
@@ -16,8 +15,8 @@ impl Crypto {
 
     pub fn verify_ciphertext_integrity(
         hmac_key: &hmac::Key,
-        ciphertext: &Vec<u8>,
-        hmac: &Vec<u8>,
+        ciphertext: &[u8],
+        hmac: &[u8],
     ) -> bool {
         match hmac::verify(hmac_key, ciphertext, hmac) {
             Ok(()) => true,

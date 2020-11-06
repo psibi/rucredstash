@@ -77,6 +77,9 @@ hello,world
 HELLEHLLOBYEGOOD='dam'
 HELLO='world'
 HELLO1='world1'
+$ credstash getall > file.json
+$ credstash putall @file.json
+$ aws-env credstash putall '{"hello":"world", "hi":"bye"}'
 ```
 
 ## CI Tests
@@ -95,9 +98,13 @@ $ ./test.sh
 
 * Provide cli subcommand to create CMK
   - This feature isn't present in the original credstash
-* putall subcommand
-  - I dislike the default behavior of credstash. So this is one place
-    where our behavior will diverge.
+* Remove all the usage of the `expect()` method in the main.rs file.
+
+## Checklist before a new release
+
+- [ ] Update help message in README
+- [ ] Run *cargo clippy* (Todo: Integrate with CI)
+- [ ] Ran integration tests with AWS infrastructure
 
 ## Reference
 

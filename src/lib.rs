@@ -1,15 +1,11 @@
 pub mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
-use core::convert::From;
 use crypto::Crypto;
 use futures::future::join_all;
 use hex::FromHexError;
-use ring;
 use ring::hmac::{sign, Algorithm, Key};
-use rusoto_core::region::Region;
-use rusoto_core::request::TlsError;
-use rusoto_core::{HttpClient, RusotoError};
+use rusoto_core::{region::Region, request::TlsError, HttpClient, RusotoError};
 use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
@@ -18,9 +14,8 @@ use rusoto_dynamodb::{
     PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError,
     ScanInput, Tag,
 };
-use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
-    DecryptError, DecryptResponse, GenerateDataKeyError, GenerateDataKeyRequest,
+    DecryptError, DecryptRequest, DecryptResponse, GenerateDataKeyError, GenerateDataKeyRequest,
     GenerateDataKeyResponse, Kms, KmsClient,
 };
 use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
@@ -124,9 +119,7 @@ fn put_helper(
     let hmac_ciphertext = sign(&hmac_ring_key, &ciphertext); // HMAC of encrypted text
     let data_key_ciphertext = query_output
         .ciphertext_blob
-        .ok_or(CredStashClientError::AWSKMSError(
-            "ciphertext_blob is empty".to_string(),
-        ))?
+        .ok_or_else(|| CredStashClientError::AWSKMSError("ciphertext_blob is empty".to_string()))?
         .to_vec();
     let base64_ciphertext = encode(&ciphertext); // Base64 of encrypted text
     let base64_data_key_ciphertext = encode(&data_key_ciphertext); // Encoding of full key encrypted with master key
@@ -146,9 +139,7 @@ fn put_helper(
     item_name.s = Some(credential_name);
     item.insert("name".to_string(), item_name);
     let mut item_version = AttributeValue::default();
-    item_version.s = version
-        .map_or(Some(1), |ver| Some(ver))
-        .map(|elem| pad_integer(elem));
+    item_version.s = version.map_or(Some(1), Some).map(pad_integer);
     item.insert("version".to_string(), item_version);
     let mut nitem = comment.map_or(item.clone(), |com| {
         let mut item_comment = AttributeValue::default();
@@ -187,29 +178,22 @@ fn get_key(
 }
 
 fn get_version(query_output: QueryOutput) -> Result<u64, CredStashClientError> {
-    let dynamo_result = query_output
-        .items
-        .ok_or(CredStashClientError::AWSDynamoError(
-            "items column is missing".to_string(),
-        ))?;
-    let item: HashMap<String, AttributeValue> =
-        dynamo_result
-            .into_iter()
-            .nth(0)
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "items is Empty".to_string(),
-            ))?;
-    let dynamo_version: &AttributeValue =
-        item.get("version")
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "version column is missing".to_string(),
-            ))?;
+    let dynamo_result = query_output.items.ok_or_else(|| {
+        CredStashClientError::AWSDynamoError("items column is missing".to_string())
+    })?;
+    let item: HashMap<String, AttributeValue> = dynamo_result
+        .into_iter()
+        .next()
+        .ok_or_else(|| CredStashClientError::AWSDynamoError("items is Empty".to_string()))?;
+    let dynamo_version: &AttributeValue = item.get("version").ok_or_else(|| {
+        CredStashClientError::AWSDynamoError("version column is missing".to_string())
+    })?;
     Ok(dynamo_version
         .s
         .as_ref()
-        .ok_or(CredStashClientError::AWSDynamoError(
-            "version column value not present".to_string(),
-        ))?
+        .ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("version column value not present".to_string())
+        })?
         .to_owned()
         .parse::<u64>()?)
 }
@@ -217,7 +201,7 @@ fn get_version(query_output: QueryOutput) -> Result<u64, CredStashClientError> {
 fn pad_integer(num: u64) -> String {
     let num_str = num.to_string();
     if num_str.len() >= PAD_LEN {
-        return num_str;
+        num_str
     } else {
         let remaining = PAD_LEN - num_str.len();
         let mut zeros: String = "0".to_string().repeat(remaining);
@@ -244,9 +228,9 @@ fn get_algorithm(algorithm: Algorithm) -> String {
         return "SHA256".to_string();
     }
     if algorithm == ring::hmac::HMAC_SHA512 {
-        return "SHA512".to_string();
+        "SHA512".to_string()
     } else {
-        return "SHA1".to_string();
+        "SHA1".to_string()
     }
 }
 
@@ -342,7 +326,7 @@ impl From<(RusotoError<DecryptError>, Vec<(String, String)>)> for CredStashClien
     fn from(error: (RusotoError<DecryptError>, Vec<(String, String)>)) -> Self {
         let enc_context = error.1;
         let msg;
-        if enc_context.len() > 0 {
+        if !enc_context.is_empty() {
             msg = "Could not decrypt hmac key with KMS. The encryption context provided may not match the one used when the credential was stored.";
         } else {
             msg = "Could not decrypt hmac key with KMS. The credential may require that an encryption context be provided to decrypt it."
@@ -476,7 +460,10 @@ impl CredStashClient {
             attr_names.insert("#c".to_string(), "comment".to_string());
             scan_query.expression_attribute_names = Some(attr_names);
             scan_query.table_name = table_name.clone();
-            if last_eval_key.as_ref().map_or(false, |hmap| !hmap.is_empty()) {
+            if last_eval_key
+                .as_ref()
+                .map_or(false, |hmap| !hmap.is_empty())
+            {
                 scan_query.exclusive_start_key = last_eval_key;
             }
 
@@ -506,31 +493,27 @@ impl CredStashClient {
         &self,
         item: HashMap<String, AttributeValue>,
     ) -> Result<CredstashKey, CredStashClientError> {
-        let dynamo_name = item
-            .get("name")
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "name column is missing".to_string(),
-            ))?;
-        let dynamo_version: &AttributeValue =
-            item.get("version")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "version column is missing".to_string(),
-                ))?;
+        let dynamo_name = item.get("name").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("name column is missing".to_string())
+        })?;
+        let dynamo_version: &AttributeValue = item.get("version").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("version column is missing".to_string())
+        })?;
         let comment: Option<&AttributeValue> = item.get("comment");
 
         let name = dynamo_name
             .s
             .as_ref()
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "name column value not present".to_string(),
-            ))?
+            .ok_or_else(|| {
+                CredStashClientError::AWSDynamoError("name column value not present".to_string())
+            })?
             .to_owned();
         let version = dynamo_version
             .s
             .as_ref()
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "version column value not present".to_string(),
-            ))?
+            .ok_or_else(|| {
+                CredStashClientError::AWSDynamoError("version column value not present".to_string())
+            })?
             .to_owned();
         let comment: Option<String> = match comment.map(|item| item.s.as_ref()) {
             None => None,
@@ -584,7 +567,7 @@ impl CredStashClient {
                 encryption_context.clone(),
                 None,
                 comment.clone(),
-                digest_algorithm.clone(),
+                digest_algorithm,
             ),
             Ok(version) => self.put_secret(
                 table_name,
@@ -636,8 +619,8 @@ impl CredStashClient {
         get_version(dynamo_result)
     }
 
-    async fn get_items<'a>(
-        &'a self,
+    async fn get_items(
+        &self,
         table_name: String,
         credential: String,
     ) -> Result<Vec<HashMap<String, AttributeValue>>, CredStashClientError> {
@@ -661,7 +644,10 @@ impl CredStashClient {
             attr_values.insert(":nameValue".to_string(), str_attr);
             query.expression_attribute_values = Some(attr_values);
             query.table_name = table_name.clone();
-            if last_eval_key.as_ref().map_or(false, |hmap| !hmap.is_empty()) {
+            if last_eval_key
+                .as_ref()
+                .map_or(false, |hmap| !hmap.is_empty())
+            {
                 query.exclusive_start_key = last_eval_key;
             }
             let dynamo_result = self.dynamo_client.query(query).await?;
@@ -686,7 +672,7 @@ impl CredStashClient {
     /// * `credential_name`: Credential name to store.
     ///
     pub async fn delete_secret<'a>(
-        &'a self,
+        &self,
         table_name: String,
         credential_name: String,
     ) -> Result<Vec<DeleteItemOutput>, CredStashClientError> {
@@ -697,7 +683,7 @@ impl CredStashClient {
         let items: Vec<Result<DeleteItemOutput, RusotoError<DeleteItemError>>> =
             join_all(result.into_iter().map(|item| {
                 let mut delq = del_query.clone();
-                delq.key = item.clone();
+                delq.key = item;
                 self.dynamo_client.delete_item(delq)
             }))
             .await;
@@ -817,7 +803,7 @@ impl CredStashClient {
             })
             .collect();
 
-        create_query.tags = if table_tags.len() > 0 {
+        create_query.tags = if !table_tags.is_empty() {
             Some(table_tags)
         } else {
             None
@@ -860,61 +846,45 @@ impl CredStashClient {
         query_output: Option<Vec<HashMap<String, AttributeValue>>>,
         encryption_context: Vec<(String, String)>,
     ) -> Result<CredstashItem, CredStashClientError> {
-        let dynamo_result: Vec<_> = query_output.ok_or(CredStashClientError::AWSDynamoError(
-            "items column is missing".to_string(),
-        ))?;
-        let item: HashMap<String, AttributeValue> =
-            dynamo_result
-                .into_iter()
-                .nth(0)
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "items is Empty".to_string(),
-                ))?;
-        let dynamo_key: &AttributeValue = item.get("key").ok_or(
-            CredStashClientError::AWSDynamoError("key column is missing".to_string()),
-        )?;
-        let dynamo_contents: &AttributeValue =
-            item.get("contents")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "key column is missing".to_string(),
-                ))?;
-        let dynamo_hmac: &AttributeValue =
-            item.get("hmac")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "hmac column is missing".to_string(),
-                ))?;
-        let dynamo_version: &AttributeValue =
-            item.get("version")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "version column is missing".to_string(),
-                ))?;
-        let dynamo_digest: &AttributeValue =
-            item.get("digest")
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "digest column is missing".to_string(),
-                ))?;
-        let key: &String = dynamo_key
-            .s
-            .as_ref()
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "key column value not present".to_string(),
-            ))?;
-        let item_contents = decode(dynamo_contents.s.as_ref().ok_or(
-            CredStashClientError::AWSDynamoError("contents column value not present".to_string()),
-        )?)?;
+        let dynamo_result: Vec<_> = query_output.ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("items column is missing".to_string())
+        })?;
+        let item: HashMap<String, AttributeValue> = dynamo_result
+            .into_iter()
+            .next()
+            .ok_or_else(|| CredStashClientError::AWSDynamoError("items is Empty".to_string()))?;
+        let dynamo_key: &AttributeValue = item.get("key").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("key column is missing".to_string())
+        })?;
+        let dynamo_contents: &AttributeValue = item.get("contents").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("key column is missing".to_string())
+        })?;
+        let dynamo_hmac: &AttributeValue = item.get("hmac").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("hmac column is missing".to_string())
+        })?;
+        let dynamo_version: &AttributeValue = item.get("version").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("version column is missing".to_string())
+        })?;
+        let dynamo_digest: &AttributeValue = item.get("digest").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("digest column is missing".to_string())
+        })?;
+        let key: &String = dynamo_key.s.as_ref().ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("key column value not present".to_string())
+        })?;
+        let item_contents = decode(dynamo_contents.s.as_ref().ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("contents column value not present".to_string())
+        })?)?;
         let item_hmac = dynamo_hmac
             .b
             .as_ref()
-            .map(|hb| hex::decode(hb))
-            .or(dynamo_hmac.s.as_ref().map(|hs| hex::decode(hs)))
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "hmac column value not present".to_string(),
-            ))??;
-        let dynamo_name = item
-            .get("name")
-            .ok_or(CredStashClientError::AWSDynamoError(
-                "name column is missing".to_string(),
-            ))?;
+            .map(hex::decode)
+            .or_else(|| dynamo_hmac.s.as_ref().map(hex::decode))
+            .ok_or_else(|| {
+                CredStashClientError::AWSDynamoError("hmac column value not present".to_string())
+            })??;
+        let dynamo_name = item.get("name").ok_or_else(|| {
+            CredStashClientError::AWSDynamoError("name column is missing".to_string())
+        })?;
         let decoded_key: Vec<u8> = decode(key)?;
         let algorithm = dynamo_digest
             .s
@@ -924,34 +894,38 @@ impl CredStashClient {
                 to_algorithm(item.to_owned())
             })?;
         let (hmac_key, aes_key) = self
-            .decrypt_via_kms(algorithm.clone(), decoded_key, encryption_context)
+            .decrypt_via_kms(algorithm, decoded_key, encryption_context)
             .await?;
         let crypto_context = Crypto::new();
         let verified = Crypto::verify_ciphertext_integrity(&hmac_key, &item_contents, &item_hmac);
-        if verified == false {
+        if !verified {
             return Err(CredStashClientError::HMacMismatch);
         }
         let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.clone());
         Ok(CredstashItem {
-            aes_key: aes_key,
-            hmac_key: hmac_key,
+            aes_key,
+            hmac_key,
             credential_value: contents,
             hmac_digest: item_hmac,
             digest_algorithm: algorithm,
             version: dynamo_version
                 .s
                 .as_ref()
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "version column value not present".to_string(),
-                ))?
+                .ok_or_else(|| {
+                    CredStashClientError::AWSDynamoError(
+                        "version column value not present".to_string(),
+                    )
+                })?
                 .to_owned(),
             comment: None,
             credential_name: dynamo_name
                 .s
                 .as_ref()
-                .ok_or(CredStashClientError::AWSDynamoError(
-                    "digest column value not present".to_string(),
-                ))?
+                .ok_or_else(|| {
+                    CredStashClientError::AWSDynamoError(
+                        "digest column value not present".to_string(),
+                    )
+                })?
                 .to_owned(),
         })
     }
@@ -994,10 +968,8 @@ impl CredStashClient {
         let item = match version {
             None => {
                 let dynamo_result = self.dynamo_client.query(query).await?;
-                let credstash_item = self
-                    .to_dynamo_result(dynamo_result.items, encryption_context)
-                    .await?;
-                credstash_item
+                self.to_dynamo_result(dynamo_result.items, encryption_context)
+                    .await?
             }
             Some(ver) => {
                 let mut get_item_input: GetItemInput = Default::default();
@@ -1012,8 +984,7 @@ impl CredStashClient {
                 get_item_input.key = key;
                 let dynamo_result = self.dynamo_client.get_item(get_item_input).await?;
                 let result = dynamo_result.item.map(|item| vec![item]);
-                let credstash_item = self.to_dynamo_result(result, encryption_context).await?;
-                credstash_item
+                self.to_dynamo_result(result, encryption_context).await?
             }
         };
         Ok(item)
@@ -1029,7 +1000,7 @@ impl CredStashClient {
         query.key_id = key_id.map_or("alias/credstash".to_string(), |item| item);
         query.number_of_bytes = Some(number_of_bytes);
         let mut hash_map = HashMap::new();
-        if encryption_context.len() > 0 {
+        if !encryption_context.is_empty() {
             for (context_key, context_value) in encryption_context {
                 hash_map.insert(context_key, context_value);
             }
@@ -1050,7 +1021,7 @@ impl CredStashClient {
         for (c1, c2) in encryption_context.clone() {
             context.insert(c1, c2);
         }
-        if encryption_context.len() == 0 {
+        if encryption_context.is_empty() {
             query.encryption_context = None;
         } else {
             query.encryption_context = Some(context);
