@@ -139,14 +139,13 @@ fn parse_credential(content: String) -> Result<Vec<Credential>, CredStashAppErro
         }
     }
     if result {
-        return Ok(credential_value);
+        Ok(credential_value)
     } else {
         let msg = format!(
             "JSON parsing issue. Expecting an object of key value pairs, but instead got {}",
             content
         );
-        let error_value = Err(CredStashAppError::ParseError(msg));
-        return error_value;
+        Err(CredStashAppError::ParseError(msg))
     }
 }
 
@@ -179,7 +178,7 @@ fn render_secret(secret: Vec<u8>) -> Result<String, CredStashAppError> {
 }
 
 fn render_comment(comment: Option<String>) -> String {
-    comment.unwrap_or("".to_string())
+    comment.unwrap_or_else(|| "".to_string())
 }
 
 fn to_algorithm(digest: String) -> Result<Algorithm, CredStashAppError> {
@@ -364,7 +363,7 @@ async fn handle_action(
             let encryption_context = get_opts
                 .clone()
                 .map(|opts| opts.encryption_context)
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
             let val = client
                 .get_all_secrets(table_name, encryption_context, version)
                 .await?;
@@ -379,7 +378,7 @@ async fn handle_action(
             }
             Ok(())
         }
-        Action::Invalid(msg) => Err(CredStashAppError::InvalidAction(format!("{}", msg))),
+        Action::Invalid(msg) => Err(CredStashAppError::InvalidAction(msg)),
     }
 }
 
@@ -463,7 +462,7 @@ impl From<serde_json::error::Error> for CredStashAppError {
 
 impl CredstashApp {
     fn new() -> Result<Self, CredStashAppError> {
-        Self::new_from(std::env::args_os().into_iter())
+        Self::new_from(std::env::args_os())
     }
 
     fn new_from<I, T>(args: I) -> Result<Self, CredStashAppError>
@@ -477,7 +476,7 @@ impl CredstashApp {
                 Err(CredStashAppError::MissingEnv(
                     "CARGO_PKG_VERSION environment variable not present".to_string(),
                 )),
-                |val| Ok(val),
+                Ok,
             )?)
             .about("A credential/secret storage system")
             .author("Sibi Prabakaran");
@@ -607,8 +606,8 @@ impl CredstashApp {
                     .value_of("credential")
                     .expect("Credential not supplied")
                     .to_string();
-                let context: Option<Vec<_>> = get_matches.values_of("context").map_or(None, |e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v)))
+                let context: Option<Vec<_>> = get_matches.values_of("context").and_then(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
 
@@ -629,8 +628,8 @@ impl CredstashApp {
             }
             ("getall", None) => Action::GetAll(None),
             ("getall", Some(get_matches)) => {
-                let context: Option<Vec<_>> = get_matches.values_of("context").map_or(None, |e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v)))
+                let context: Option<Vec<_>> = get_matches.values_of("context").and_then(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
 
@@ -668,10 +667,10 @@ impl CredstashApp {
             ("setup", Some(setup_matches)) => {
                 let tags = setup_matches.values_of("tags");
                 let tags_options: Option<Vec<String>> =
-                    tags.map(|values| values.into_iter().map(|item| item.to_string()).collect());
+                    tags.map(|values| values.map(|item| item.to_string()).collect());
                 let table_tags: Option<Vec<(String, String)>> = tags_options.map(|item| {
                     item.into_iter()
-                        .filter_map(|item| split_tags_to_tuple(item).map_or(None, |val| Some(val)))
+                        .filter_map(|item| split_tags_to_tuple(item).ok())
                         .collect()
                 });
                 let setup_opts = SetupOpts {
@@ -725,13 +724,10 @@ impl CredstashApp {
                     .value_of("digest")
                     .map_or(Ok(ring::hmac::HMAC_SHA256), |e| to_algorithm(e.to_string()))?;
 
-                let context: Option<Vec<_>> =
-                    putall_matches.values_of("context").map_or(None, |e| {
-                        e.map(|item| {
-                            split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v))
-                        })
+                let context: Option<Vec<_>> = putall_matches.values_of("context").and_then(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
                         .collect()
-                    });
+                });
                 let encryption_context: Vec<_> = match context {
                     None => vec![],
                     Some(x) => x,
@@ -797,8 +793,8 @@ impl CredstashApp {
                     version,
                     digest_algorithm,
                 };
-                let context: Option<Vec<_>> = put_matches.values_of("context").map_or(None, |e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).map_or(None, |v| Some(v)))
+                let context: Option<Vec<_>> = put_matches.values_of("context").and_then(|e| {
+                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
                 let encryption_context: Vec<_> = match context {
