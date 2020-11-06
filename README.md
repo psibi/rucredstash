@@ -13,11 +13,12 @@
 **Table of Contents**
 
 - [Rucredstash](#rucredstash)
-    - [Usage](#usage)
-    - [Installation](#installation)
-    - [Infrastructure Setup](#infrastructure-setup)
-    - [Usage Examples](#usage-examples)
-        - [Different way of passing AWS Credentials](#different-way-of-passing-aws-credentials)
+- [Introduction](#introduction)
+- [Usage](#usage)
+- [Installation](#installation)
+- [Infrastructure Setup](#infrastructure-setup)
+- [Usage Examples](#usage-examples)
+    - [Different way of passing AWS Credentials](#different-way-of-passing-aws-credentials)
     - [Other usage examples](#other-usage-examples)
         - [Put secret value](#put-secret-value)
         - [Get secret value](#get-secret-value)
