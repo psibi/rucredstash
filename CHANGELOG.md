@@ -1,6 +1,6 @@
 # v0.8.0
 
-* Implement getall subcommand
+* Implement putall subcommand
 * Minor refactors and perf improvement.
 * Add tests for the crypto module.
 * Imports cleanup, improve documentation

@@ -29,6 +29,7 @@
 
 <!-- markdown-toc end -->
 
+# Introduction
 
 Rucredstash is a Rust port of [CredStash](https://github.com/fugue/credstash)
 
@@ -43,7 +44,7 @@ accessing it. The CLI is meant as a drop in replacement of the
 original credstash program and therefore it tries to have the exact
 interface as the original program.
 
-## Usage
+# Usage
 
 ``` shellsession
 rucredstash 0.8.0
@@ -80,13 +81,13 @@ SUBCOMMANDS:
     setup     setup the credential store
 ```
 
-## Installation
+# Installation
 
 See Github releases: https://github.com/psibi/rucredstash/releases
 
 Executables are available for all the three major platforms: Linux, Windows and MacOS.
 
-## Infrastructure Setup
+# Infrastructure Setup
 
 For `rucredstash` to work, you need to setup the following AWS
 infrastrucutre:
@@ -96,9 +97,9 @@ infrastrucutre:
 * Create DynamoDB table
   - rucredstash setup
 
-## Usage Examples
+# Usage Examples
 
-### Different way of passing AWS Credentials
+## Different way of passing AWS Credentials
 
 The most simple case is to export the proper environment variable and use it:
 
