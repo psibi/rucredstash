@@ -22,6 +22,7 @@
         - [Put secret value](#put-secret-value)
         - [Get secret value](#get-secret-value)
         - [Get all secret values](#get-all-secret-values)
+        - [List credentials with other metadata](#list-credentials-with-other-metadata)
         - [Get all keys](#get-all-keys)
         - [Delete a specific key](#delete-a-specific-key)
         - [Put a bunch of secrets (putall subcommand)](#put-a-bunch-of-secrets-putall-subcommand)
@@ -45,8 +46,7 @@ interface as the original program.
 ## Usage
 
 ``` shellsession
-$ rucredstash --help
-rucredstash 0.6.1
+rucredstash 0.8.0
 Sibi Prabakaran
 A credential/secret storage system
 
@@ -76,6 +76,7 @@ SUBCOMMANDS:
     keys      List all keys in the store
     list      List credentials and their versions
     put       Put a credential into the store
+    putall    Put credentials from json or file into the store
     setup     setup the credential store
 ```
 
@@ -200,6 +201,15 @@ $ rucredstash getall --format yaml
 hello: world
 hellehllobyegood: dam
 hello1: world1
+```
+
+### List credentials with other metadata
+
+``` shellsession
+$ rucredstash list
+hello            -- version 0000000000000000001 --comment
+hellehllobyegood -- version 0000000000000000001 --comment
+hello1           -- version 0000000000000000001 --comment
 ```
 
 ### Get all keys
