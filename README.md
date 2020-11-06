@@ -9,6 +9,26 @@
 [mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
 [mit-url]: LICENSE
 
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+**Table of Contents**
+
+- [Rucredstash](#rucredstash)
+    - [Usage](#usage)
+    - [Installation](#installation)
+    - [Infrastructure Setup](#infrastructure-setup)
+    - [Usage Examples](#usage-examples)
+        - [Different way of passing AWS Credentials](#different-way-of-passing-aws-credentials)
+    - [Other usage examples](#other-usage-examples)
+        - [Put secret value](#put-secret-value)
+        - [Get secret value](#get-secret-value)
+        - [Get all secret values](#get-all-secret-values)
+        - [Get all keys](#get-all-keys)
+        - [Delete a specific key](#delete-a-specific-key)
+        - [Put a bunch of secrets (putall subcommand)](#put-a-bunch-of-secrets-putall-subcommand)
+
+<!-- markdown-toc end -->
+
+
 Rucredstash is a Rust port of [CredStash](https://github.com/fugue/credstash)
 
 It uses a combination of AWS Key Management Service (KMS) and DynamoDB
@@ -18,7 +38,9 @@ more [detailed
 tutorial](https://www.fpcomplete.com/blog/2017/08/credstash) is here.
 
 This package offers the interface via both CLI and an library way of
-accessing it.
+accessing it. The CLI is meant as a drop in replacement of the
+original credstash program and therefore it tries to have the exact
+interface as the original program.
 
 ## Usage
 
@@ -187,4 +209,51 @@ $ rucredstash keys
 hello
 hellehllobyegood
 hello1
+```
+
+### Delete a specific key
+
+``` shellsession
+$ rucredstash delete hello
+Deleting hello --version 0000000000000000001
+```
+
+### Put a bunch of secrets (putall subcommand)
+
+You can pass the input from a file using the special symbol `@` to
+indicate that the data is fed from the file:
+
+``` shellsession
+$ bat secrets.json
+───────┬────────────────────────────────────────
+       │ File: secrets.json
+───────┼────────────────────────────────────────
+   1   │ {
+   2   │     "hello": "world",
+   3   │     "hi": "bye"
+   4   │ }
+───────┴────────────────────────────────────────
+$ rucredstash putall @secrets.json
+hello has been stored
+hi has been stored
+```
+
+You can also pass the data via stdin using the special operator `-`:
+
+``` shellsession
+$ rucredstash putall -
+{ "hello": "world" }
+hello has been stored
+```
+
+Note that the passed data should be in json format. You press the
+[Enter key](https://en.wikipedia.org/wiki/Enter_key "Enter key") to
+indicate that you have finished passing the data.
+
+Also, you can also pass the data directly to it:
+
+``` shellsession
+$ rucredstash putall '{"hello":"world","hi":"bye"}'
+hello has been stored
+hi has been stored
 ```

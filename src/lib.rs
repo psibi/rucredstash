@@ -1,15 +1,11 @@
 pub mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
-use core::convert::From;
 use crypto::Crypto;
 use futures::future::join_all;
 use hex::FromHexError;
-use ring;
 use ring::hmac::{sign, Algorithm, Key};
-use rusoto_core::region::Region;
-use rusoto_core::request::TlsError;
-use rusoto_core::{HttpClient, RusotoError};
+use rusoto_core::{region::Region, request::TlsError, HttpClient, RusotoError};
 use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
@@ -18,9 +14,8 @@ use rusoto_dynamodb::{
     PutItemError, PutItemInput, PutItemOutput, QueryError, QueryInput, QueryOutput, ScanError,
     ScanInput, Tag,
 };
-use rusoto_kms::DecryptRequest;
 use rusoto_kms::{
-    DecryptError, DecryptResponse, GenerateDataKeyError, GenerateDataKeyRequest,
+    DecryptError, DecryptRequest, DecryptResponse, GenerateDataKeyError, GenerateDataKeyRequest,
     GenerateDataKeyResponse, Kms, KmsClient,
 };
 use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
@@ -476,7 +471,10 @@ impl CredStashClient {
             attr_names.insert("#c".to_string(), "comment".to_string());
             scan_query.expression_attribute_names = Some(attr_names);
             scan_query.table_name = table_name.clone();
-            if last_eval_key.as_ref().map_or(false, |hmap| !hmap.is_empty()) {
+            if last_eval_key
+                .as_ref()
+                .map_or(false, |hmap| !hmap.is_empty())
+            {
                 scan_query.exclusive_start_key = last_eval_key;
             }
 
@@ -661,7 +659,10 @@ impl CredStashClient {
             attr_values.insert(":nameValue".to_string(), str_attr);
             query.expression_attribute_values = Some(attr_values);
             query.table_name = table_name.clone();
-            if last_eval_key.as_ref().map_or(false, |hmap| !hmap.is_empty()) {
+            if last_eval_key
+                .as_ref()
+                .map_or(false, |hmap| !hmap.is_empty())
+            {
                 query.exclusive_start_key = last_eval_key;
             }
             let dynamo_result = self.dynamo_client.query(query).await?;

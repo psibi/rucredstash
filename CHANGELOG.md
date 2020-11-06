@@ -1,3 +1,10 @@
+# v0.8.0
+
+* Implement getall subcommand
+* Minor refactors and perf improvement.
+* Add tests for the crypto module.
+* Imports cleanup, improve documentation
+
 # v0.7.0
 
 * Remove unwrap usage from the library and hence make it more safe.
