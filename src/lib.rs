@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
+
 pub mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
@@ -5,7 +7,7 @@ use crypto::Crypto;
 use futures::future::join_all;
 use hex::FromHexError;
 use ring::hmac::{sign, Algorithm, Key};
-use rusoto_core::{region::Region, request::TlsError, HttpClient, RusotoError};
+use rusoto_core::{region::Region, request::TlsError, Client, HttpClient, RusotoError};
 use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
@@ -56,7 +58,6 @@ pub enum CredStashCredential {
 /// Represents the Decrypted row for the `credential_name`
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
-    aes_key: Bytes,
     /// HMAC signing key with digest algorithm and the key value
     pub hmac_key: Key,
     /// Credential name which has been stored.
@@ -358,16 +359,11 @@ impl CredStashClient {
         let default_region = region.map_or(Region::default(), |item| item);
         let provider = match credential {
             CredStashCredential::DefaultCredentialsProvider => {
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new()?,
-                    DefaultCredentialsProvider::new()?,
-                    default_region.clone(),
-                );
-                let kms_client = KmsClient::new_with(
-                    HttpClient::new()?,
-                    DefaultCredentialsProvider::new()?,
-                    default_region,
-                );
+                let client =
+                    Client::new_with(DefaultCredentialsProvider::new()?, HttpClient::new()?);
+                let dynamo_client =
+                    DynamoDbClient::new_with_client(client.clone(), default_region.clone());
+                let kms_client = KmsClient::new_with_client(client.clone(), default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultAssumeRole((assume_role_arn, mfa_field)) => {
@@ -376,11 +372,8 @@ impl CredStashClient {
                     DefaultCredentialsProvider::new()?,
                     default_region.clone(),
                 );
-                let mfa = match mfa_field.clone() {
-                    None => None,
-                    Some((mfa, _)) => Some(mfa),
-                };
-                let mut dynamo_provider = StsAssumeRoleSessionCredentialsProvider::new(
+                let mfa = mfa_field.clone().map(|(mfa, _)| mfa);
+                let mut sts_role_provider = StsAssumeRoleSessionCredentialsProvider::new(
                     sts.clone(),
                     assume_role_arn.clone(),
                     "default".to_owned(),
@@ -389,29 +382,16 @@ impl CredStashClient {
                     None,
                     mfa.clone(),
                 );
-                let mut kms_provider = StsAssumeRoleSessionCredentialsProvider::new(
-                    sts,
-                    assume_role_arn,
-                    "default".to_owned(),
-                    None,
-                    None,
-                    None,
-                    mfa,
-                );
                 match mfa_field {
                     None => (),
                     Some((_, code)) => {
-                        dynamo_provider.set_mfa_code(code.clone());
-                        kms_provider.set_mfa_code(code);
+                        sts_role_provider.set_mfa_code(code.clone());
                     }
                 }
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new()?,
-                    dynamo_provider,
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new()?, kms_provider, default_region);
+                let client = Client::new_with(sts_role_provider, HttpClient::new()?);
+                let dynamo_client =
+                    DynamoDbClient::new_with_client(client.clone(), default_region.clone());
+                let kms_client = KmsClient::new_with_client(client, default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultProfile(profile) => {
@@ -422,13 +402,10 @@ impl CredStashClient {
                         profile_provider.set_profile(pr);
                     }
                 }
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new()?,
-                    profile_provider.clone(),
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new()?, profile_provider, default_region);
+                let client = Client::new_with(profile_provider, HttpClient::new()?);
+                let dynamo_client =
+                    DynamoDbClient::new_with_client(client.clone(), default_region.clone());
+                let kms_client = KmsClient::new_with_client(client, default_region);
                 (dynamo_client, kms_client)
             }
         };
@@ -545,8 +522,8 @@ impl CredStashClient {
     /// * `comment`: Optional comment to specify for the credential.
     /// * `digest_algorithm`: The digest algorithm that should be used
     /// for computing the HMAC of the encrypted text.
-    pub async fn put_secret_auto_version<'a>(
-        &'a self,
+    pub async fn put_secret_auto_version(
+        &self,
         table_name: String,
         credential_name: String,
         credential_value: String,
@@ -707,8 +684,8 @@ impl CredStashClient {
     /// * `comment`: Optional comment to specify for the credential.
     /// * `digest_algorithm`: The digest algorithm that should be used
     /// for computing the HMAC of the encrypted text.
-    pub async fn put_secret<'a>(
-        &'a self,
+    pub async fn put_secret(
+        &self,
         table_name: String,
         credential_name: String,
         credential_value: String,
@@ -745,8 +722,8 @@ impl CredStashClient {
     /// * `table_name`: Name of the DynamoDB table against which the API operates.
     /// * `tags`: Tags to associate with the table.
     ///
-    pub async fn create_db_table<'a>(
-        &'a self,
+    pub async fn create_db_table(
+        &self,
         table_name: String,
         tags: Vec<(String, String)>,
     ) -> Result<CreateTableOutput, CredStashClientError> {
@@ -820,8 +797,8 @@ impl CredStashClient {
     /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
     /// * `version`: The version of the credential which has to be
     /// retrieved. By default, it will retrieve the latest version.
-    pub async fn get_all_secrets<'a>(
-        &'a self,
+    pub async fn get_all_secrets(
+        &self,
         table_name: String,
         encryption_context: Vec<(String, String)>,
         version: Option<u64>,
@@ -841,8 +818,8 @@ impl CredStashClient {
         Ok(credstash_items?)
     }
 
-    async fn to_dynamo_result<'a>(
-        &'a self,
+    async fn to_dynamo_result(
+        &self,
         query_output: Option<Vec<HashMap<String, AttributeValue>>>,
         encryption_context: Vec<(String, String)>,
     ) -> Result<CredstashItem, CredStashClientError> {
@@ -901,9 +878,8 @@ impl CredStashClient {
         if !verified {
             return Err(CredStashClientError::HMacMismatch);
         }
-        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.clone());
+        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key);
         Ok(CredstashItem {
-            aes_key,
             hmac_key,
             credential_value: contents,
             hmac_digest: item_hmac,
@@ -939,8 +915,8 @@ impl CredStashClient {
     /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
     /// * `version`: The version of the credential which has to be
     /// retrieved. By default, it will retrieve the latest version.
-    pub async fn get_secret<'a>(
-        &'a self,
+    pub async fn get_secret(
+        &self,
         table_name: String,
         credential_name: String,
         encryption_context: Vec<(String, String)>,

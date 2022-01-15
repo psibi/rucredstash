@@ -1,3 +1,9 @@
+# v0.9.0
+
+- Switch away from deprecated crate: aes-ctr to aes
+- Upgrade all the dependencies
+- Share client between CredStashClient instead of creating individual ones for both dynamodb and  kms.
+
 # v0.8.0
 
 * Implement putall subcommand
@@ -37,7 +43,7 @@
 * Handle invalid subcommand and options.
 * Improved documentation of the CLI tool.
 
-# v0.3.0 
+# v0.3.0
 
 * Add different format support for export options.
 
