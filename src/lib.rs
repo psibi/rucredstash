@@ -7,7 +7,7 @@ use crypto::Crypto;
 use futures::future::join_all;
 use hex::FromHexError;
 use ring::hmac::{sign, Algorithm, Key};
-use rusoto_core::{region::Region, request::TlsError, HttpClient, RusotoError};
+use rusoto_core::{region::Region, request::TlsError, Client, HttpClient, RusotoError};
 use rusoto_credential::{CredentialsError, DefaultCredentialsProvider, ProfileProvider};
 use rusoto_dynamodb::{
     AttributeDefinition, AttributeValue, CreateTableError, CreateTableInput, CreateTableOutput,
@@ -360,16 +360,11 @@ impl CredStashClient {
         let default_region = region.map_or(Region::default(), |item| item);
         let provider = match credential {
             CredStashCredential::DefaultCredentialsProvider => {
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new()?,
-                    DefaultCredentialsProvider::new()?,
-                    default_region.clone(),
-                );
-                let kms_client = KmsClient::new_with(
-                    HttpClient::new()?,
-                    DefaultCredentialsProvider::new()?,
-                    default_region,
-                );
+                let client =
+                    Client::new_with(DefaultCredentialsProvider::new()?, HttpClient::new()?);
+                let dynamo_client =
+                    DynamoDbClient::new_with_client(client.clone(), default_region.clone());
+                let kms_client = KmsClient::new_with_client(client.clone(), default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultAssumeRole((assume_role_arn, mfa_field)) => {
@@ -378,8 +373,8 @@ impl CredStashClient {
                     DefaultCredentialsProvider::new()?,
                     default_region.clone(),
                 );
-                let mfa = mfa_field.clone().map(|(mfa,_)| mfa);
-                let mut dynamo_provider = StsAssumeRoleSessionCredentialsProvider::new(
+                let mfa = mfa_field.clone().map(|(mfa, _)| mfa);
+                let mut sts_role_provider = StsAssumeRoleSessionCredentialsProvider::new(
                     sts.clone(),
                     assume_role_arn.clone(),
                     "default".to_owned(),
@@ -388,29 +383,16 @@ impl CredStashClient {
                     None,
                     mfa.clone(),
                 );
-                let mut kms_provider = StsAssumeRoleSessionCredentialsProvider::new(
-                    sts,
-                    assume_role_arn,
-                    "default".to_owned(),
-                    None,
-                    None,
-                    None,
-                    mfa,
-                );
                 match mfa_field {
                     None => (),
                     Some((_, code)) => {
-                        dynamo_provider.set_mfa_code(code.clone());
-                        kms_provider.set_mfa_code(code);
+                        sts_role_provider.set_mfa_code(code.clone());
                     }
                 }
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new()?,
-                    dynamo_provider,
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new()?, kms_provider, default_region);
+                let client = Client::new_with(sts_role_provider, HttpClient::new()?);
+                let dynamo_client =
+                    DynamoDbClient::new_with_client(client.clone(), default_region.clone());
+                let kms_client = KmsClient::new_with_client(client, default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultProfile(profile) => {
@@ -421,13 +403,10 @@ impl CredStashClient {
                         profile_provider.set_profile(pr);
                     }
                 }
-                let dynamo_client = DynamoDbClient::new_with(
-                    HttpClient::new()?,
-                    profile_provider.clone(),
-                    default_region.clone(),
-                );
-                let kms_client =
-                    KmsClient::new_with(HttpClient::new()?, profile_provider, default_region);
+                let client = Client::new_with(profile_provider, HttpClient::new()?);
+                let dynamo_client =
+                    DynamoDbClient::new_with_client(client.clone(), default_region.clone());
+                let kms_client = KmsClient::new_with_client(client, default_region);
                 (dynamo_client, kms_client)
             }
         };
