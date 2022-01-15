@@ -1,4 +1,5 @@
-use clap::{App, Arg, ErrorKind::*, SubCommand};
+use clap::{ App, Arg};
+use clap::ErrorKind::{DisplayHelp, DisplayVersion};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
 use futures::future::join_all;
@@ -481,9 +482,9 @@ impl CredstashApp {
             .about("A credential/secret storage system")
             .author("Sibi Prabakaran");
 
-        let region_arg = Arg::with_name("region")
+        let region_arg = Arg::new("region")
             .long("region")
-            .short("r")
+            .short('r')
             .value_name("REGION")
             .help(
                 "the AWS region in which to operate. If a region is \
@@ -493,9 +494,9 @@ impl CredstashApp {
                  it will use us-east-1",
             );
 
-        let table_arg = Arg::with_name("table")
+        let table_arg = Arg::new("table")
             .long("table")
-            .short("t")
+            .short('t')
             .value_name("TABLE")
             .help(
                 "DynamoDB table to use for credential storage. If \
@@ -504,84 +505,87 @@ impl CredstashApp {
                  not set, the value `credential-store` will be used",
             );
 
-        let profile_arg = Arg::with_name("profile")
+        let profile_arg = Arg::new("profile")
             .long("profile")
-            .short("p")
+            .short('p')
             .value_name("PROFILE")
             .help("Boto config profile to use when connecting to AWS");
 
-        let arn_arg = Arg::with_name("arn")
+        let arn_arg = Arg::new("arn")
             .long("arn")
-            .short("a")
+            .short('a')
             .value_name("ARN")
             .help("AWS IAM ARN for AssumeRole")
             .conflicts_with("profile");
 
-        let mfa_arg = Arg::with_name("mfa")
+        let mfa_arg = Arg::new("mfa")
             .long("mfa_serial")
-            .short("m")
+            .short('m')
             .value_name("MFA_SERIAL")
             .help("Optional MFA hardware device serial number or virtual device ARN")
             .conflicts_with("profile");
 
-        let del_command = SubCommand::with_name("delete")
+        let del_command = App::new("delete")
             .about("Delete a credential from the store")
             .arg(
-                Arg::with_name("credential")
+                Arg::new("credential")
                     .help("Delete a credential from the store")
                     .required(true),
             );
 
-        let get_command = SubCommand::with_name("get")
+        let get_command = App::new("get")
             .about("Get a credential from the store")
             .arg(
-                Arg::with_name("credential")
+                Arg::new("credential")
                     .help("the name of the credential to get")
                     .required(true)
             ).arg(
-                Arg::with_name("context")
-                    .help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true)
+                Arg::new("context")
+                    .help("encryption context key/value pairs associated with the credential in the form of key=value")
+                    .multiple_occurrences(true)
 
             )
-            .arg(Arg::with_name("noline").short("n").long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
-            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
+            .arg(Arg::new("noline").short('n').long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
+            .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
 
-        let get_all_command = SubCommand::with_name("getall")
+        let get_all_command = App::new("getall")
             .about("Get all credentials from the store")
-            .arg(Arg::with_name("context")
-                 .help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true)
-            ).arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::with_name("format").short("f").long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).case_insensitive(true));
+            .arg(Arg::new("context")
+                 .help("encryption context key/value pairs associated with the credential in the form of key=value")
+                 .multiple_occurrences(true)
+            ).arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::new("format").short('f').long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).ignore_case(true));
 
-        let keys_command = SubCommand::with_name("keys").about("List all keys in the store");
+        let keys_command = App::new("keys").about("List all keys in the store");
 
         let list_command =
-            SubCommand::with_name("list").about("List credentials and their versions");
+            App::new("list").about("List credentials and their versions");
 
-        let put_command = SubCommand::with_name("put")
+        let put_command = App::new("put")
             .about("Put a credential into the store")
-            .arg(Arg::with_name("credential").help("the name of the credential to store").required(true))
-            .arg(Arg::with_name("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
-            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value").multiple(true))
-            .arg(Arg::with_name("key").short("k").long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
-            .arg(Arg::with_name("comment").short("c").long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
-            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
-            .arg(Arg::with_name("autoversion").short("a").long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
-            .arg(Arg::with_name("digest").short("d").long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).case_insensitive(true))
-            .arg(Arg::with_name("prompt").short("p").long("prompt").help("Prompt for secret").takes_value(false));
+            .arg(Arg::new("credential").help("the name of the credential to store").required(true))
+            .arg(Arg::new("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
+            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value")                 .multiple_occurrences(true)
+                 )
+            .arg(Arg::new("key").short('k').long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
+            .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
+            .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
+            .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
+            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true))
+            .arg(Arg::new("prompt").short('p').long("prompt").help("Prompt for secret").takes_value(false));
 
-        let put_all_command = SubCommand::with_name("putall")
+        let put_all_command = App::new("putall")
             .about("Put credentials from json or file into the store")
-            .arg(Arg::with_name("credentials").help("the value of the credential to store or, if beginning with the \"@\" \
+            .arg(Arg::new("credentials").help("the value of the credential to store or, if beginning with the \"@\" \
                                                      character, the filename of the file containing the values, or \
                                                      pass \"-\" to read the values from stdin. Should be in json format.").required(true))
-            .arg(Arg::with_name("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
-            .arg(Arg::with_name("key").short("k").long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
-            .arg(Arg::with_name("version").short("v").long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
-            .arg(Arg::with_name("comment").short("c").long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
-            .arg(Arg::with_name("autoversion").short("a").long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
-            .arg(Arg::with_name("digest").short("d").long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).case_insensitive(true));
+            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value"))
+            .arg(Arg::new("key").short('k').long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
+            .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
+            .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
+            .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
+            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true));
 
-        let setup_command = SubCommand::with_name("setup").about("setup the credential store").arg(Arg::with_name("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short("t"));
+        let setup_command = App::new("setup").about("setup the credential store").arg(Arg::new("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short('t'));
         let app = app
             .arg(region_arg)
             .arg(table_arg)
@@ -597,11 +601,11 @@ impl CredstashApp {
             .subcommand(put_all_command)
             .subcommand(setup_command);
         // extract the matches
-        let matches: clap::ArgMatches = app.get_matches_from_safe(args)?;
+        let matches: clap::ArgMatches = app.try_get_matches_from(args)?;
 
         let region: Option<&str> = matches.value_of("region");
         let action_value: Action = match matches.subcommand() {
-            ("get", Some(get_matches)) => {
+            Some(("get", get_matches)) => {
                 let credential: String = get_matches
                     .value_of("credential")
                     .expect("Credential not supplied")
@@ -626,8 +630,7 @@ impl CredstashApp {
                 };
                 Action::Get(credential, encryption_context, get_opts)
             }
-            ("getall", None) => Action::GetAll(None),
-            ("getall", Some(get_matches)) => {
+            Some(("getall", get_matches)) => {
                 let context: Option<Vec<_>> = get_matches.values_of("context").and_then(|e| {
                     e.map(|item| split_context_to_tuple(item.to_string()).ok())
                         .collect()
@@ -658,13 +661,9 @@ impl CredstashApp {
                 };
                 Action::GetAll(Some(getall_opts))
             }
-            ("keys", _) => Action::Keys,
-            ("list", _) => Action::List,
-            ("setup", None) => {
-                let setup_opts = SetupOpts { tags: vec![] };
-                Action::Setup(setup_opts)
-            }
-            ("setup", Some(setup_matches)) => {
+            Some(("keys", _)) => Action::Keys,
+            Some(("list", _)) => Action::List,
+            Some(("setup", setup_matches)) => {
                 let tags = setup_matches.values_of("tags");
                 let tags_options: Option<Vec<String>> =
                     tags.map(|values| values.map(|item| item.to_string()).collect());
@@ -678,7 +677,7 @@ impl CredstashApp {
                 };
                 Action::Setup(setup_opts)
             }
-            ("putall", Some(putall_matches)) => {
+            Some(("putall", putall_matches)) => {
                 let credential_name: String = putall_matches
                     .value_of("credentials")
                     .map_or(Err(CredStashAppError::MissingCredential), |val| {
@@ -742,7 +741,7 @@ impl CredstashApp {
                 };
                 Action::PutAll(putall_opts)
             }
-            ("put", Some(put_matches)) => {
+            Some(("put", put_matches)) => {
                 let credential_name: String = put_matches
                     .value_of("credential")
                     .map_or(Err(CredStashAppError::MissingCredential), |val| {
@@ -808,7 +807,7 @@ impl CredstashApp {
                     put_opts,
                 )
             }
-            ("delete", Some(del_matches)) => {
+            Some(("delete", del_matches)) => {
                 let credential: String = del_matches
                     .value_of("credential")
                     .map_or(Err(CredStashAppError::MissingCredential), |val| {
@@ -816,8 +815,12 @@ impl CredstashApp {
                     })?;
                 Action::Delete(credential)
             }
-            (subcommand, _) => {
+            Some((subcommand, _)) => {
                 let err_msg = format!("Invalid Subcommand {} found. Use --help to see accepted subcommands and option", subcommand);
+                Action::Invalid(err_msg)
+            }
+            None => {
+                let err_msg = format!("Invalid Subcommand found. Use --help to see accepted subcommands and option");
                 Action::Invalid(err_msg)
             }
         };
@@ -926,7 +929,7 @@ fn handle_error(error: CredStashAppError) {
     match error {
         CredStashAppError::VersionError(error_message) => program_exit(&error_message),
         CredStashAppError::ClapError(clap_error) => {
-            if clap_error.kind == HelpDisplayed || clap_error.kind == VersionDisplayed {
+            if clap_error.kind == DisplayHelp || clap_error.kind == DisplayVersion {
                 eprintln!("{}", &clap_error.to_string())
             } else {
                 program_exit(&clap_error.to_string())

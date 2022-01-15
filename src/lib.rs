@@ -56,7 +56,7 @@ pub enum CredStashCredential {
 /// Represents the Decrypted row for the `credential_name`
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
-    aes_key: Bytes,
+    // pub(crate) aes_key: Bytes,
     /// HMAC signing key with digest algorithm and the key value
     pub hmac_key: Key,
     /// Credential name which has been stored.
@@ -903,7 +903,6 @@ impl CredStashClient {
         }
         let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.clone());
         Ok(CredstashItem {
-            aes_key,
             hmac_key,
             credential_value: contents,
             hmac_digest: item_hmac,

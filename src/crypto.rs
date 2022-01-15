@@ -1,5 +1,5 @@
-use aes_ctr::stream_cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher};
-use aes_ctr::Aes256Ctr;
+use aes::cipher::{generic_array::GenericArray};
+use aes::{Aes256, Aes256Ctr, NewBlockCipher, cipher::FromBlockCipher, cipher::StreamCipher, cipher::NewCipher};
 use ring::hmac;
 
 pub struct Crypto {
@@ -29,7 +29,8 @@ impl Crypto {
         // The key size used is 32 bytes (256 bits).
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
-        let mut cipher = Aes256Ctr::new(&cipher_key, &nonce);
+        let aes: Aes256 = Aes256::new(&cipher_key);
+        let mut cipher = Aes256Ctr::from_block_cipher(aes, &nonce);
         let mut cipher_text = plaintext;
         cipher.apply_keystream(cipher_text.as_mut_slice());
         cipher_text
