@@ -58,7 +58,6 @@ pub enum CredStashCredential {
 /// Represents the Decrypted row for the `credential_name`
 #[derive(Debug, Clone)]
 pub struct CredstashItem {
-    // pub(crate) aes_key: Bytes,
     /// HMAC signing key with digest algorithm and the key value
     pub hmac_key: Key,
     /// Credential name which has been stored.

@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 // Both table and the KMS key should be present for the test to pass.
 #[test]
 fn credstash_basic_workflow() {
-    let mut rt = Runtime::new().unwrap();
+    let rt = Runtime::new().unwrap();
 
     // put credential
     let table_name = "credential-store".to_string();
