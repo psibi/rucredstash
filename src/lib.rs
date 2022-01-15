@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
+
 pub mod crypto;
 use base64::{decode, encode, DecodeError};
 use bytes::Bytes;
@@ -376,10 +378,7 @@ impl CredStashClient {
                     DefaultCredentialsProvider::new()?,
                     default_region.clone(),
                 );
-                let mfa = match mfa_field.clone() {
-                    None => None,
-                    Some((mfa, _)) => Some(mfa),
-                };
+                let mfa = mfa_field.clone().map(|(mfa,_)| mfa);
                 let mut dynamo_provider = StsAssumeRoleSessionCredentialsProvider::new(
                     sts.clone(),
                     assume_role_arn.clone(),
@@ -545,8 +544,8 @@ impl CredStashClient {
     /// * `comment`: Optional comment to specify for the credential.
     /// * `digest_algorithm`: The digest algorithm that should be used
     /// for computing the HMAC of the encrypted text.
-    pub async fn put_secret_auto_version<'a>(
-        &'a self,
+    pub async fn put_secret_auto_version(
+        &self,
         table_name: String,
         credential_name: String,
         credential_value: String,
@@ -707,8 +706,8 @@ impl CredStashClient {
     /// * `comment`: Optional comment to specify for the credential.
     /// * `digest_algorithm`: The digest algorithm that should be used
     /// for computing the HMAC of the encrypted text.
-    pub async fn put_secret<'a>(
-        &'a self,
+    pub async fn put_secret(
+        &self,
         table_name: String,
         credential_name: String,
         credential_value: String,
@@ -745,8 +744,8 @@ impl CredStashClient {
     /// * `table_name`: Name of the DynamoDB table against which the API operates.
     /// * `tags`: Tags to associate with the table.
     ///
-    pub async fn create_db_table<'a>(
-        &'a self,
+    pub async fn create_db_table(
+        &self,
         table_name: String,
         tags: Vec<(String, String)>,
     ) -> Result<CreateTableOutput, CredStashClientError> {
@@ -820,8 +819,8 @@ impl CredStashClient {
     /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
     /// * `version`: The version of the credential which has to be
     /// retrieved. By default, it will retrieve the latest version.
-    pub async fn get_all_secrets<'a>(
-        &'a self,
+    pub async fn get_all_secrets(
+        &self,
         table_name: String,
         encryption_context: Vec<(String, String)>,
         version: Option<u64>,
@@ -841,8 +840,8 @@ impl CredStashClient {
         Ok(credstash_items?)
     }
 
-    async fn to_dynamo_result<'a>(
-        &'a self,
+    async fn to_dynamo_result(
+        &self,
         query_output: Option<Vec<HashMap<String, AttributeValue>>>,
         encryption_context: Vec<(String, String)>,
     ) -> Result<CredstashItem, CredStashClientError> {
@@ -901,7 +900,7 @@ impl CredStashClient {
         if !verified {
             return Err(CredStashClientError::HMacMismatch);
         }
-        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key.clone());
+        let contents = crypto_context.aes_decrypt_ctr(item_contents, aes_key);
         Ok(CredstashItem {
             hmac_key,
             credential_value: contents,
@@ -938,8 +937,8 @@ impl CredStashClient {
     /// * `encryption_context`: Name-value pair that specifies the encryption context to be used for authenticated encryption. If used here, the same value must be supplied to the <code>Decrypt</code> API or decryption will fail. For more information, see <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#encrypt_context">Encryption Context</a>.
     /// * `version`: The version of the credential which has to be
     /// retrieved. By default, it will retrieve the latest version.
-    pub async fn get_secret<'a>(
-        &'a self,
+    pub async fn get_secret(
+        &self,
         table_name: String,
         credential_name: String,
         encryption_context: Vec<(String, String)>,

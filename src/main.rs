@@ -819,10 +819,9 @@ impl CredstashApp {
                 Action::Invalid(err_msg)
             }
             None => {
-                let err_msg = format!(
-                    "Invalid Subcommand found. Use --help to see accepted subcommands and option"
-                );
-                Action::Invalid(err_msg)
+                let err_msg =
+                    "Invalid Subcommand found. Use --help to see accepted subcommands and option";
+                Action::Invalid(err_msg.into())
             }
         };
 
