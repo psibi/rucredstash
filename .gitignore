@@ -1,3 +1,8 @@
 /target
 **/*.rs.bk
 aws-env.config
+tests/.envrc
+tests/.terraform/*
+tests/terraform.tfstate*
+tests/tf.out
+tests/.terraform.lock.hcl
