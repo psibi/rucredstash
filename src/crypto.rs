@@ -1,5 +1,8 @@
-use aes::cipher::{generic_array::GenericArray};
-use aes::{Aes256, Aes256Ctr, NewBlockCipher, cipher::FromBlockCipher, cipher::StreamCipher, cipher::NewCipher};
+use aes::cipher::generic_array::GenericArray;
+use aes::{
+    cipher::FromBlockCipher, cipher::NewCipher, cipher::StreamCipher, Aes256, Aes256Ctr,
+    NewBlockCipher,
+};
 use ring::hmac;
 
 pub struct Crypto {

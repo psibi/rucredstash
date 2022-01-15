@@ -1,5 +1,5 @@
-use clap::{ App, Arg};
 use clap::ErrorKind::{DisplayHelp, DisplayVersion};
+use clap::{App, Arg};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
 use futures::future::join_all;
@@ -557,8 +557,7 @@ impl CredstashApp {
 
         let keys_command = App::new("keys").about("List all keys in the store");
 
-        let list_command =
-            App::new("list").about("List credentials and their versions");
+        let list_command = App::new("list").about("List credentials and their versions");
 
         let put_command = App::new("put")
             .about("Put a credential into the store")
@@ -820,7 +819,9 @@ impl CredstashApp {
                 Action::Invalid(err_msg)
             }
             None => {
-                let err_msg = format!("Invalid Subcommand found. Use --help to see accepted subcommands and option");
+                let err_msg = format!(
+                    "Invalid Subcommand found. Use --help to see accepted subcommands and option"
+                );
                 Action::Invalid(err_msg)
             }
         };
