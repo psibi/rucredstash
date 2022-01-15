@@ -85,8 +85,59 @@ $ aws-env credstash putall '{"hello":"world", "hi":"bye"}'
 ## CI Tests
 
 Note that CI doesn't run the integration tests as it needs AWS
-integration and it isn't free. But, you can manually run it if you
-have the default dynamoDB and the KMS key setup. This is how you should execute:
+integration and it isn't free.
+
+For setting up the necessary infrastructure, you would need to do two
+things. Make sure you have setup the credentials for your IAM user. I
+typically export my access keys:
+
+``` shellsession
+export AWS_ACCESS_KEY_ID=REDACTED
+export AWS_SECRET_ACCESS_KEY=REDACTED
+```
+
+And I use that IAM user to assume another role:
+
+``` shellsession
+aws assume-role --role-arn arn:aws:iam::REDACTED:role/admin --role-session-name test-credstash --serial-number arn:aws:iam::REDACTED:mfa/sibi  --token-code MFA_CODE
+```
+
+And you will get an output like this:
+
+``` shellsession
+{
+    "Credentials": {
+        "AccessKeyId": "REDACTED",
+        "SecretAccessKey": "REDACTED",
+        "SessionToken": "REDACTED",
+        "Expiration": "2022-01-15T13:48:37+00:00"
+    },
+    "AssumedRoleUser": {
+        "AssumedRoleId": "REDACTED",
+        "Arn": "REDACTED"
+    }
+}
+```
+
+Now you export these environment variables:
+
+``` shellsession
+export AWS_ACCESS_KEY_ID=REDACTED
+export AWS_SECRET_ACCESS_KEY=REDACTED
+export AWS_SESSION_TOKEN=REDACTED
+```
+
+Now for creating the table, do:
+
+``` shellsession
+rucredstash setup
+```
+
+And for creating the KMS key run the terraform code present inside the
+tests directory.
+
+Once the above infrastructure is ready, for running the test suite do
+this:
 
 ```
 $ cargo test

@@ -1,0 +1,26 @@
+# List all recipies
+default:
+    just --list --unsorted
+
+# Runs terraform get and terraform init for env
+init:
+	terraform get
+	terraform init
+
+# use 'terraform plan' to map out updates to apply
+plan:
+	terraform plan -out=tf.out
+
+# use 'terraform apply' to apply updates in a 'tf.out' plan file
+apply:
+	terraform apply tf.out
+
+# use 'terraform destroy' to remove all resources from AWS
+destroy:
+	terraform destroy
+
+# rm -rf all files and state
+clean:
+	rm -f terraform.tfvars
+	rm -f terraform.*.backup
+	rm -f terraform.tfstate
