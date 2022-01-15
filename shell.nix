@@ -5,4 +5,5 @@ stdenv.mkDerivation {
     pkg-config
     openssl
   ];
+  RUST_LOG = "rucredstash=debug";
 }

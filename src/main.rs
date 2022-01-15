@@ -563,8 +563,7 @@ impl CredstashApp {
             .about("Put a credential into the store")
             .arg(Arg::new("credential").help("the name of the credential to store").required(true))
             .arg(Arg::new("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
-            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value")                 .multiple_occurrences(true)
-                 )
+            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value").multiple_occurrences(true))
             .arg(Arg::new("key").short('k').long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
@@ -600,9 +599,17 @@ impl CredstashApp {
             .subcommand(put_all_command)
             .subcommand(setup_command);
         // extract the matches
+
+        log::debug!("Application initialized");
+
         let matches: clap::ArgMatches = app.try_get_matches_from(args)?;
 
+        log::debug!("ArgMatches parsed");
+
         let region: Option<&str> = matches.value_of("region");
+
+        log::debug!("AWS Region: {:?}", region);
+
         let action_value: Action = match matches.subcommand() {
             Some(("get", get_matches)) => {
                 let credential: String = get_matches
@@ -706,7 +713,7 @@ impl CredstashApp {
                 let key_id = putall_matches.value_of("key").map(|e| e.to_string());
                 let comment = putall_matches.value_of("comment").map(|e| e.to_string());
                 let version: Either<u64, AutoIncrement> = {
-                    let version_option = putall_matches.value_of("option").map_or(1, |e| {
+                    let version_option = putall_matches.value_of("version").map_or(1, |e| {
                         e.to_string()
                             .parse::<u64>()
                             .expect("Version should be positive integer")
@@ -741,11 +748,13 @@ impl CredstashApp {
                 Action::PutAll(putall_opts)
             }
             Some(("put", put_matches)) => {
+                log::debug!("Put Action");
                 let credential_name: String = put_matches
                     .value_of("credential")
                     .map_or(Err(CredStashAppError::MissingCredential), |val| {
                         Ok(val.to_string())
                     })?;
+                log::debug!("Credential name: {}", credential_name);
                 let credential_value: String = {
                     let mut value = String::new();
                     let get_input = put_matches.is_present("prompt");
@@ -766,10 +775,13 @@ impl CredstashApp {
                     }
                     value.trim().to_string()
                 };
+                log::debug!("Credential value: {}", credential_value);
                 let key_id = put_matches.value_of("key").map(|e| e.to_string());
+                log::debug!("Key ID: {:?}", key_id);
                 let comment = put_matches.value_of("comment").map(|e| e.to_string());
+                log::debug!("Comment: {:?}", comment);
                 let version: Either<u64, AutoIncrement> = {
-                    let version_option = put_matches.value_of("option").map_or(1, |e| {
+                    let version_option = put_matches.value_of("version").map_or(1, |e| {
                         e.to_string()
                             .parse::<u64>()
                             .expect("Version should be positive integer")
@@ -781,6 +793,7 @@ impl CredstashApp {
                         Either::Left(version_option)
                     }
                 };
+                log::debug!("Version: {:?}", version);
                 let digest_algorithm = put_matches
                     .value_of("digest")
                     .map_or(Ok(ring::hmac::HMAC_SHA256), |e| to_algorithm(e.to_string()))?;
@@ -795,6 +808,7 @@ impl CredstashApp {
                     e.map(|item| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
+                log::debug!("Context: {:?}", context);
                 let encryption_context: Vec<_> = match context {
                     None => vec![],
                     Some(x) => x,
@@ -824,6 +838,8 @@ impl CredstashApp {
                 Action::Invalid(err_msg.into())
             }
         };
+
+        log::debug!("Action type: {:?}", action_value);
 
         let table_name = {
             match env::var("CREDSTASH_DEFAULT_TABLE ") {
@@ -986,8 +1002,16 @@ fn program_exit(msg: &str) {
     std::process::exit(1);
 }
 
+fn init_logger() {
+    use env_logger::{Builder, Target};
+    let mut builder = Builder::from_default_env();
+    builder.target(Target::Stderr).init();
+}
+
 #[tokio::main]
 async fn main() {
+    init_logger();
+    log::debug!("Logger initialization done");
     let credstash_app = CredstashApp::new();
     match credstash_app {
         Ok(app) => {
