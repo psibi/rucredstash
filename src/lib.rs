@@ -363,7 +363,7 @@ impl CredStashClient {
                     Client::new_with(DefaultCredentialsProvider::new()?, HttpClient::new()?);
                 let dynamo_client =
                     DynamoDbClient::new_with_client(client.clone(), default_region.clone());
-                let kms_client = KmsClient::new_with_client(client.clone(), default_region);
+                let kms_client = KmsClient::new_with_client(client, default_region);
                 (dynamo_client, kms_client)
             }
             CredStashCredential::DefaultAssumeRole((assume_role_arn, mfa_field)) => {
@@ -374,18 +374,18 @@ impl CredStashClient {
                 );
                 let mfa = mfa_field.clone().map(|(mfa, _)| mfa);
                 let mut sts_role_provider = StsAssumeRoleSessionCredentialsProvider::new(
-                    sts.clone(),
-                    assume_role_arn.clone(),
+                    sts,
+                    assume_role_arn,
                     "default".to_owned(),
                     None,
                     None,
                     None,
-                    mfa.clone(),
+                    mfa,
                 );
                 match mfa_field {
                     None => (),
                     Some((_, code)) => {
-                        sts_role_provider.set_mfa_code(code.clone());
+                        sts_role_provider.set_mfa_code(code);
                     }
                 }
                 let client = Client::new_with(sts_role_provider, HttpClient::new()?);

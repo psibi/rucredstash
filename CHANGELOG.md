@@ -1,3 +1,7 @@
+# Unreleased
+
+- Minor fixes based on clippy suggestions
+
 # v0.9.0
 
 - Switch away from deprecated crate: aes-ctr to aes
