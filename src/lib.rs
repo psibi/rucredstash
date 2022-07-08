@@ -326,12 +326,11 @@ impl From<RusotoError<DecryptError>> for CredStashClientError {
 impl From<(RusotoError<DecryptError>, Vec<(String, String)>)> for CredStashClientError {
     fn from(error: (RusotoError<DecryptError>, Vec<(String, String)>)) -> Self {
         let enc_context = error.1;
-        let msg;
-        if !enc_context.is_empty() {
-            msg = "Could not decrypt hmac key with KMS. The encryption context provided may not match the one used when the credential was stored.";
+        let msg = if !enc_context.is_empty() {
+            "Could not decrypt hmac key with KMS. The encryption context provided may not match the one used when the credential was stored."
         } else {
-            msg = "Could not decrypt hmac key with KMS. The credential may require that an encryption context be provided to decrypt it."
-        }
+            "Could not decrypt hmac key with KMS. The credential may require that an encryption context be provided to decrypt it."
+        };
         CredStashClientError::AWSKMSError(msg.to_string())
     }
 }
@@ -815,7 +814,7 @@ impl CredStashClient {
         let result: Vec<Result<CredstashItem, CredStashClientError>> = items.await;
         let credstash_items: Result<Vec<CredstashItem>, CredStashClientError> =
             result.into_iter().collect();
-        Ok(credstash_items?)
+        credstash_items
     }
 
     async fn to_dynamo_result(
