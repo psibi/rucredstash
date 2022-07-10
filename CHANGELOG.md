@@ -1,6 +1,7 @@
-# Unreleased
+# v0.9.1
 
 - Minor fixes based on clippy suggestions
+- Upgrade crates to latest version and make relevant changes for ctr.
 
 # v0.9.0
 

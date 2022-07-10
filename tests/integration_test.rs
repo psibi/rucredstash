@@ -1,7 +1,6 @@
 extern crate credstash;
 
 use credstash::{CredStashClient, CredStashCredential, CredstashItem};
-use ring;
 use std::str;
 use tokio::runtime::Runtime;
 

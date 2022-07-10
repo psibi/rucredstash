@@ -1,13 +1,13 @@
 use aes::cipher::generic_array::GenericArray;
-use aes::{
-    cipher::FromBlockCipher, cipher::NewCipher, cipher::StreamCipher, Aes256, Aes256Ctr,
-    NewBlockCipher,
-};
+use aes::{cipher::StreamCipher, Aes256};
+use cipher::KeyIvInit;
 use ring::hmac;
 
 pub struct Crypto {
     default_nonce: [u8; 16],
 }
+
+type Aes256Ctr = ctr::Ctr32LE<Aes256>;
 
 impl Crypto {
     pub fn new() -> Self {
@@ -32,8 +32,7 @@ impl Crypto {
         // The key size used is 32 bytes (256 bits).
         let cipher_key: &GenericArray<u8, _> = GenericArray::from_slice(&key);
         let nonce: &GenericArray<u8, _> = GenericArray::from_slice(&self.default_nonce);
-        let aes: Aes256 = Aes256::new(cipher_key);
-        let mut cipher = Aes256Ctr::from_block_cipher(aes, nonce);
+        let mut cipher = Aes256Ctr::new(cipher_key, nonce);
         let mut cipher_text = plaintext;
         cipher.apply_keystream(cipher_text.as_mut_slice());
         cipher_text
