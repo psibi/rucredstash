@@ -1,6 +1,6 @@
 [package]
 name = "credstash"
-version = "0.9.0"
+version = "0.9.1"
 description = "Credstash is a utility for managing credentials in the AWS cloud"
 keywords = ["AWS", "Amazon", "Secret", "Encryption", "Security"]
 license = "MIT"
