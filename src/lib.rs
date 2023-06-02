@@ -841,9 +841,7 @@ impl CredStashClient {
         let dynamo_version: &AttributeValue = item.get("version").ok_or_else(|| {
             CredStashClientError::AWSDynamoError("version column is missing".to_string())
         })?;
-        let dynamo_digest: &AttributeValue = item.get("digest").ok_or_else(|| {
-            CredStashClientError::AWSDynamoError("digest column is missing".to_string())
-        })?;
+        let dynamo_digest: Option<&AttributeValue> = item.get("digest");
         let key: &String = dynamo_key.s.as_ref().ok_or_else(|| {
             CredStashClientError::AWSDynamoError("key column value not present".to_string())
         })?;
@@ -862,13 +860,17 @@ impl CredStashClient {
             CredStashClientError::AWSDynamoError("name column is missing".to_string())
         })?;
         let decoded_key: Vec<u8> = decode(key)?;
-        let algorithm = dynamo_digest
-            .s
-            .as_ref()
-            .to_owned()
-            .map_or(Ok(ring::hmac::HMAC_SHA256), |item| {
-                to_algorithm(item.to_owned())
-            })?;
+        let algorithm = match dynamo_digest {
+            Some(digest) => digest
+                .s
+                .as_ref()
+                .to_owned()
+                .map_or(Ok(ring::hmac::HMAC_SHA256), |item| {
+                    to_algorithm(item.to_owned())
+                })?,
+            None => ring::hmac::HMAC_SHA256,
+        };
+
         let (hmac_key, aes_key) = self
             .decrypt_via_kms(algorithm, decoded_key, encryption_context)
             .await?;
