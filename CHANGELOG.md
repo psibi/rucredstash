@@ -1,3 +1,7 @@
+# v0.9.2
+
+- Default to SHA256 when digest column is not present
+
 # v0.9.1
 
 - Minor fixes based on clippy suggestions
