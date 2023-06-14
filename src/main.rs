@@ -1,5 +1,5 @@
 use clap::ErrorKind::{DisplayHelp, DisplayVersion};
-use clap::{App, Arg};
+use clap::{Command, Arg};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
 use futures::future::join_all;
@@ -472,7 +472,7 @@ impl CredstashApp {
         T: Into<OsString> + Clone,
     {
         let version: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
-        let app: App = App::new("rucredstash")
+        let app: Command = Command::new("rucredstash")
             .version(version.map_or(
                 Err(CredStashAppError::MissingEnv(
                     "CARGO_PKG_VERSION environment variable not present".to_string(),
@@ -525,7 +525,7 @@ impl CredstashApp {
             .help("Optional MFA hardware device serial number or virtual device ARN")
             .conflicts_with("profile");
 
-        let del_command = App::new("delete")
+        let del_command = Command::new("delete")
             .about("Delete a credential from the store")
             .arg(
                 Arg::new("credential")
@@ -533,7 +533,7 @@ impl CredstashApp {
                     .required(true),
             );
 
-        let get_command = App::new("get")
+        let get_command = Command::new("get")
             .about("Get a credential from the store")
             .arg(
                 Arg::new("credential")
@@ -548,18 +548,18 @@ impl CredstashApp {
             .arg(Arg::new("noline").short('n').long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
 
-        let get_all_command = App::new("getall")
+        let get_all_command = Command::new("getall")
             .about("Get all credentials from the store")
             .arg(Arg::new("context")
                  .help("encryption context key/value pairs associated with the credential in the form of key=value")
                  .multiple_occurrences(true)
             ).arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::new("format").short('f').long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).ignore_case(true));
 
-        let keys_command = App::new("keys").about("List all keys in the store");
+        let keys_command = Command::new("keys").about("List all keys in the store");
 
-        let list_command = App::new("list").about("List credentials and their versions");
+        let list_command = Command::new("list").about("List credentials and their versions");
 
-        let put_command = App::new("put")
+        let put_command = Command::new("put")
             .about("Put a credential into the store")
             .arg(Arg::new("credential").help("the name of the credential to store").required(true))
             .arg(Arg::new("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
@@ -571,7 +571,7 @@ impl CredstashApp {
             .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true))
             .arg(Arg::new("prompt").short('p').long("prompt").help("Prompt for secret").takes_value(false));
 
-        let put_all_command = App::new("putall")
+        let put_all_command = Command::new("putall")
             .about("Put credentials from json or file into the store")
             .arg(Arg::new("credentials").help("the value of the credential to store or, if beginning with the \"@\" \
                                                      character, the filename of the file containing the values, or \
@@ -583,7 +583,7 @@ impl CredstashApp {
             .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
             .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true));
 
-        let setup_command = App::new("setup").about("setup the credential store").arg(Arg::new("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short('t'));
+        let setup_command = Command::new("setup").about("setup the credential store").arg(Arg::new("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short('t'));
         let app = app
             .arg(region_arg)
             .arg(table_arg)
