@@ -1,7 +1,7 @@
 #![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
 
 pub mod crypto;
-use base64::{decode, encode, DecodeError};
+use base64::{DecodeError, Engine, engine::general_purpose};
 use bytes::Bytes;
 use crypto::Crypto;
 use futures::future::join_all;
@@ -122,8 +122,8 @@ fn put_helper(
         .ciphertext_blob
         .ok_or_else(|| CredStashClientError::AWSKMSError("ciphertext_blob is empty".to_string()))?
         .to_vec();
-    let base64_ciphertext = encode(&ciphertext); // Base64 of encrypted text
-    let base64_data_key_ciphertext = encode(&data_key_ciphertext); // Encoding of full key encrypted with master key
+    let base64_ciphertext = general_purpose::STANDARD.encode(&ciphertext); // Base64 of encrypted text
+    let base64_data_key_ciphertext = general_purpose::STANDARD.encode(&data_key_ciphertext); // Encoding of full key encrypted with master key
     let hex_hmac_ciphertext = hex::encode(hmac_ciphertext);
 
     let mut put_item: PutItemInput = Default::default();
@@ -845,7 +845,7 @@ impl CredStashClient {
         let key: &String = dynamo_key.s.as_ref().ok_or_else(|| {
             CredStashClientError::AWSDynamoError("key column value not present".to_string())
         })?;
-        let item_contents = decode(dynamo_contents.s.as_ref().ok_or_else(|| {
+        let item_contents = general_purpose::STANDARD.decode(dynamo_contents.s.as_ref().ok_or_else(|| {
             CredStashClientError::AWSDynamoError("contents column value not present".to_string())
         })?)?;
         let item_hmac = dynamo_hmac
@@ -859,7 +859,7 @@ impl CredStashClient {
         let dynamo_name = item.get("name").ok_or_else(|| {
             CredStashClientError::AWSDynamoError("name column is missing".to_string())
         })?;
-        let decoded_key: Vec<u8> = decode(key)?;
+        let decoded_key: Vec<u8> = general_purpose::STANDARD.decode(key)?;
         let algorithm = match dynamo_digest {
             Some(digest) => digest
                 .s
