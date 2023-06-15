@@ -1,5 +1,5 @@
-use clap::ErrorKind::{DisplayHelp, DisplayVersion};
-use clap::{Command, Arg};
+use clap::error::ErrorKind::{DisplayHelp, DisplayVersion};
+use clap::{Arg, Command};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
 use futures::future::join_all;
@@ -542,9 +542,8 @@ impl CredstashApp {
             ).arg(
                 Arg::new("context")
                     .help("encryption context key/value pairs associated with the credential in the form of key=value")
-                    .multiple_occurrences(true)
-
-            )
+                    .action(clap::ArgAction::Append)
+	    )
             .arg(Arg::new("noline").short('n').long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
 
@@ -552,8 +551,8 @@ impl CredstashApp {
             .about("Get all credentials from the store")
             .arg(Arg::new("context")
                  .help("encryption context key/value pairs associated with the credential in the form of key=value")
-                 .multiple_occurrences(true)
-            ).arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::new("format").short('f').long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).ignore_case(true));
+		 .action(clap::ArgAction::Append)
+            ).arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::new("format").short('f').long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").ignore_case(true).value_parser(["json", "yaml", "csv", "dotenv"]));
 
         let keys_command = Command::new("keys").about("List all keys in the store");
 
@@ -563,12 +562,12 @@ impl CredstashApp {
             .about("Put a credential into the store")
             .arg(Arg::new("credential").help("the name of the credential to store").required(true))
             .arg(Arg::new("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
-            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value").multiple_occurrences(true))
+            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value").action(clap::ArgAction::Append))
             .arg(Arg::new("key").short('k').long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
             .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
-            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true))
+            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").ignore_case(true).value_parser(["SHA1", "SHA256", "SHA384", "SHA512"]))
             .arg(Arg::new("prompt").short('p').long("prompt").help("Prompt for secret").takes_value(false));
 
         let put_all_command = Command::new("putall")
@@ -581,7 +580,7 @@ impl CredstashApp {
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
             .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
             .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
-            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true));
+            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").ignore_case(true).value_parser(["SHA1", "SHA256", "SHA384", "SHA512"]));
 
         let setup_command = Command::new("setup").about("setup the credential store").arg(Arg::new("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short('t'));
         let app = app
