@@ -56,7 +56,7 @@ async fn credstash_basic_workflow() {
     // get all secrets
     let get_all_future = app.get_all_secrets(table_name.clone(), vec![], None).await;
 
-    assert_eq!(get_all_future.unwrap().len() >= 1, true);
+    assert!(!get_all_future.unwrap().is_empty());
 
     // delete credential
     let delete_future = app.delete_secret(table_name, "hello12".to_string()).await;

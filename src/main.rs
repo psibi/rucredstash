@@ -179,7 +179,7 @@ fn render_secret(secret: Vec<u8>) -> Result<String, CredStashAppError> {
 }
 
 fn render_comment(comment: Option<String>) -> String {
-    comment.unwrap_or_else(|| "".to_string())
+    comment.unwrap_or_default()
 }
 
 fn to_algorithm(digest: String) -> Result<Algorithm, CredStashAppError> {
@@ -614,7 +614,7 @@ impl CredstashApp {
                 let credential: &String = get_matches
                     .get_one("credential")
                     .expect("Credential not supplied");
-		let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
+                let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
                     e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
@@ -710,14 +710,19 @@ impl CredstashApp {
                     _ => parse_credential(credential_name)?,
                 };
 
-                let key_id = putall_matches.get_one("key").map(|e: &String| e.to_string());
-                let comment = putall_matches.get_one("comment").map(|e: &String| e.to_string());
+                let key_id = putall_matches
+                    .get_one("key")
+                    .map(|e: &String| e.to_string());
+                let comment = putall_matches
+                    .get_one("comment")
+                    .map(|e: &String| e.to_string());
                 let version: Either<u64, AutoIncrement> = {
-                    let version_option = putall_matches.get_one("version").map_or(1, |e: &String| {
-                        e.to_string()
-                            .parse::<u64>()
-                            .expect("Version should be positive integer")
-                    });
+                    let version_option =
+                        putall_matches.get_one("version").map_or(1, |e: &String| {
+                            e.to_string()
+                                .parse::<u64>()
+                                .expect("Version should be positive integer")
+                        });
                     let autoversion = putall_matches.contains_id("autoversion");
                     if autoversion {
                         Either::Right(AutoIncrement::AutoIncrement)
@@ -727,7 +732,9 @@ impl CredstashApp {
                 };
                 let digest_algorithm = putall_matches
                     .get_one("digest")
-                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e: &String| to_algorithm(e.to_string()))?;
+                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e: &String| {
+                        to_algorithm(e.to_string())
+                    })?;
 
                 let context: Option<Vec<_>> = putall_matches.get_many("context").and_then(|e| {
                     e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
@@ -767,18 +774,19 @@ impl CredstashApp {
                             .read_line(&mut value)
                             .expect("Failed to read from stdin");
                     } else {
-                        value = put_matches
-                            .get_one("value")
-                            .map_or(Err(CredStashAppError::MissingCredentialValue), |val: &String| {
-                                Ok(val.to_string())
-                            })?;
+                        value = put_matches.get_one("value").map_or(
+                            Err(CredStashAppError::MissingCredentialValue),
+                            |val: &String| Ok(val.to_string()),
+                        )?;
                     }
                     value.trim().to_string()
                 };
                 log::debug!("Credential value: {}", credential_value);
                 let key_id = put_matches.get_one("key").map(|e: &String| e.to_string());
                 log::debug!("Key ID: {:?}", key_id);
-                let comment = put_matches.get_one("comment").map(|e: &String| e.to_string());
+                let comment = put_matches
+                    .get_one("comment")
+                    .map(|e: &String| e.to_string());
                 log::debug!("Comment: {:?}", comment);
                 let version: Either<u64, AutoIncrement> = {
                     let version_option = put_matches.get_one("version").map_or(1, |e: &String| {
@@ -796,7 +804,9 @@ impl CredstashApp {
                 log::debug!("Version: {:?}", version);
                 let digest_algorithm = put_matches
                     .get_one("digest")
-                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e: &String| to_algorithm(e.to_string()))?;
+                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e: &String| {
+                        to_algorithm(e.to_string())
+                    })?;
 
                 let put_opts = PutOpts {
                     key_id,
