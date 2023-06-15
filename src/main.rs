@@ -611,11 +611,10 @@ impl CredstashApp {
 
         let action_value: Action = match matches.subcommand() {
             Some(("get", get_matches)) => {
-                let credential: String = get_matches
-                    .get_one::<&String>("credential")
-                    .expect("Credential not supplied")
-                    .to_string();
-                let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
+                let credential: &String = get_matches
+                    .get_one("credential")
+                    .expect("Credential not supplied");
+		let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
                     e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
@@ -633,7 +632,7 @@ impl CredstashApp {
                     noline: get_matches.get_flag("noline"),
                     version,
                 };
-                Action::Get(credential, encryption_context, get_opts)
+                Action::Get(credential.into(), encryption_context, get_opts)
             }
             Some(("getall", get_matches)) => {
                 let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
