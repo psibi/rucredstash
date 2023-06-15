@@ -1,5 +1,5 @@
-use clap::ErrorKind::{DisplayHelp, DisplayVersion};
-use clap::{App, Arg};
+use clap::error::ErrorKind::{DisplayHelp, DisplayVersion};
+use clap::{Arg, ArgAction, Command};
 use credstash::{CredStashClient, CredStashCredential};
 use either::Either;
 use futures::future::join_all;
@@ -472,7 +472,7 @@ impl CredstashApp {
         T: Into<OsString> + Clone,
     {
         let version: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
-        let app: App = App::new("rucredstash")
+        let app: Command = Command::new("rucredstash")
             .version(version.map_or(
                 Err(CredStashAppError::MissingEnv(
                     "CARGO_PKG_VERSION environment variable not present".to_string(),
@@ -525,7 +525,7 @@ impl CredstashApp {
             .help("Optional MFA hardware device serial number or virtual device ARN")
             .conflicts_with("profile");
 
-        let del_command = App::new("delete")
+        let del_command = Command::new("delete")
             .about("Delete a credential from the store")
             .arg(
                 Arg::new("credential")
@@ -533,7 +533,7 @@ impl CredstashApp {
                     .required(true),
             );
 
-        let get_command = App::new("get")
+        let get_command = Command::new("get")
             .about("Get a credential from the store")
             .arg(
                 Arg::new("credential")
@@ -542,36 +542,35 @@ impl CredstashApp {
             ).arg(
                 Arg::new("context")
                     .help("encryption context key/value pairs associated with the credential in the form of key=value")
-                    .multiple_occurrences(true)
-
-            )
-            .arg(Arg::new("noline").short('n').long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)"))
+                    .action(clap::ArgAction::Append)
+	    )
+            .arg(Arg::new("noline").short('n').long("noline").help("Don't append newline to returned value (useful in scripts or with binary files)").action(ArgAction::SetTrue))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version"));
 
-        let get_all_command = App::new("getall")
+        let get_all_command = Command::new("getall")
             .about("Get all credentials from the store")
             .arg(Arg::new("context")
                  .help("encryption context key/value pairs associated with the credential in the form of key=value")
-                 .multiple_occurrences(true)
-            ).arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::new("format").short('f').long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").possible_values(&["json", "yaml", "csv", "dotenv"]).ignore_case(true));
+		 .action(clap::ArgAction::Append)
+            ).arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Get a specific version of the credential (defaults to the latest version")).arg(Arg::new("format").short('f').long("format").value_name("FORMAT").help("Output format. json(default) yaml, csv or dotenv.").ignore_case(true).value_parser(["json", "yaml", "csv", "dotenv"]));
 
-        let keys_command = App::new("keys").about("List all keys in the store");
+        let keys_command = Command::new("keys").about("List all keys in the store");
 
-        let list_command = App::new("list").about("List credentials and their versions");
+        let list_command = Command::new("list").about("List credentials and their versions");
 
-        let put_command = App::new("put")
+        let put_command = Command::new("put")
             .about("Put a credential into the store")
             .arg(Arg::new("credential").help("the name of the credential to store").required(true))
             .arg(Arg::new("value").help("the value of the credential to store").required(true).conflicts_with("prompt"))
-            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value").multiple_occurrences(true))
+            .arg(Arg::new("context").help("encryption context key/value pairs associated with the credential in the form of key=value").action(clap::ArgAction::Append))
             .arg(Arg::new("key").short('k').long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
-            .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
-            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true))
-            .arg(Arg::new("prompt").short('p').long("prompt").help("Prompt for secret").takes_value(false));
+            .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").action(ArgAction::SetTrue).conflicts_with("version"))
+            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").ignore_case(true).value_parser(["SHA1", "SHA256", "SHA384", "SHA512"]))
+            .arg(Arg::new("prompt").short('p').long("prompt").action(ArgAction::SetTrue).help("Prompt for secret"));
 
-        let put_all_command = App::new("putall")
+        let put_all_command = Command::new("putall")
             .about("Put credentials from json or file into the store")
             .arg(Arg::new("credentials").help("the value of the credential to store or, if beginning with the \"@\" \
                                                      character, the filename of the file containing the values, or \
@@ -580,10 +579,10 @@ impl CredstashApp {
             .arg(Arg::new("key").short('k').long("key").value_name("KEY").help("the KMS key-id of the master key to use. Defaults to alias/credstash"))
             .arg(Arg::new("version").short('v').long("version").value_name("VERSION").help("Put a specific version of the credential (update the credential; defaults to version `1`)"))
             .arg(Arg::new("comment").short('c').long("comment").value_name("COMMENT").help("Include reference information or a comment about value to be stored."))
-            .arg(Arg::new("autoversion").short('a').long("autoversion").help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
-            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").possible_values(&["SHA1", "SHA256", "SHA384", "SHA512"]).ignore_case(true));
+            .arg(Arg::new("autoversion").short('a').long("autoversion").action(ArgAction::SetTrue).help("Automatically increment the version of the credential to be stored.").conflicts_with("version"))
+            .arg(Arg::new("digest").short('d').long("digest").value_name("DIGEST").help("the hashing algorithm used to to encrypt the data. Defaults to SHA256.").ignore_case(true).value_parser(["SHA1", "SHA256", "SHA384", "SHA512"]));
 
-        let setup_command = App::new("setup").about("setup the credential store").arg(Arg::new("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short('t'));
+        let setup_command = Command::new("setup").about("setup the credential store").arg(Arg::new("tags").value_name("TAGS").help("Tags to apply to the Dynamodb Table passed in as a space sparated list of Key=Value").long("tags").short('t'));
         let app = app
             .arg(region_arg)
             .arg(table_arg)
@@ -606,18 +605,17 @@ impl CredstashApp {
 
         log::debug!("ArgMatches parsed");
 
-        let region: Option<&str> = matches.value_of("region");
+        let region: Option<&String> = matches.get_one("region");
 
         log::debug!("AWS Region: {:?}", region);
 
         let action_value: Action = match matches.subcommand() {
             Some(("get", get_matches)) => {
-                let credential: String = get_matches
-                    .value_of("credential")
-                    .expect("Credential not supplied")
-                    .to_string();
-                let context: Option<Vec<_>> = get_matches.values_of("context").and_then(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
+                let credential: &String = get_matches
+                    .get_one("credential")
+                    .expect("Credential not supplied");
+		let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
+                    e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
 
@@ -625,20 +623,20 @@ impl CredstashApp {
                     None => vec![],
                     Some(x) => x,
                 };
-                let version = get_matches.value_of("version").map(|ver| {
+                let version = get_matches.get_one("version").map(|ver: &String| {
                     ver.to_string()
                         .parse::<u64>()
                         .expect("Version should be positive integer")
                 });
                 let get_opts = GetOpts {
-                    noline: get_matches.is_present("noline"),
+                    noline: get_matches.get_flag("noline"),
                     version,
                 };
-                Action::Get(credential, encryption_context, get_opts)
+                Action::Get(credential.into(), encryption_context, get_opts)
             }
             Some(("getall", get_matches)) => {
-                let context: Option<Vec<_>> = get_matches.values_of("context").and_then(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
+                let context: Option<Vec<_>> = get_matches.get_many("context").and_then(|e| {
+                    e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
 
@@ -646,20 +644,22 @@ impl CredstashApp {
                     None => vec![],
                     Some(x) => x,
                 };
-                let version = get_matches.value_of("version").map(|ver| {
+                let version = get_matches.get_one("version").map(|ver: &String| {
                     ver.to_string()
                         .parse::<u64>()
                         .expect("Version should be positive integer")
                 });
-                let export_type = get_matches.value_of("format").map_or(
-                    ExportOption::Json,
-                    |export| match export.to_lowercase().as_ref() {
-                        "csv" => ExportOption::Csv,
-                        "yaml" => ExportOption::Yaml,
-                        "dotenv" => ExportOption::DotEnv,
-                        _ => ExportOption::Json,
-                    },
-                );
+                let export_type =
+                    get_matches
+                        .get_one("format")
+                        .map_or(ExportOption::Json, |export: &String| {
+                            match export.to_lowercase().as_ref() {
+                                "csv" => ExportOption::Csv,
+                                "yaml" => ExportOption::Yaml,
+                                "dotenv" => ExportOption::DotEnv,
+                                _ => ExportOption::Json,
+                            }
+                        });
                 let getall_opts = GetAllOpts {
                     version,
                     encryption_context,
@@ -670,9 +670,9 @@ impl CredstashApp {
             Some(("keys", _)) => Action::Keys,
             Some(("list", _)) => Action::List,
             Some(("setup", setup_matches)) => {
-                let tags = setup_matches.values_of("tags");
+                let tags = setup_matches.get_many("tags");
                 let tags_options: Option<Vec<String>> =
-                    tags.map(|values| values.map(|item| item.to_string()).collect());
+                    tags.map(|values| values.map(|item: &String| item.to_string()).collect());
                 let table_tags: Option<Vec<(String, String)>> = tags_options.map(|item| {
                     item.into_iter()
                         .filter_map(|item| split_tags_to_tuple(item).ok())
@@ -685,8 +685,8 @@ impl CredstashApp {
             }
             Some(("putall", putall_matches)) => {
                 let credential_name: String = putall_matches
-                    .value_of("credentials")
-                    .map_or(Err(CredStashAppError::MissingCredential), |val| {
+                    .get_one("credentials")
+                    .map_or(Err(CredStashAppError::MissingCredential), |val: &String| {
                         Ok(val.to_string())
                     })?;
                 let mut credential_content = String::new();
@@ -710,15 +710,15 @@ impl CredstashApp {
                     _ => parse_credential(credential_name)?,
                 };
 
-                let key_id = putall_matches.value_of("key").map(|e| e.to_string());
-                let comment = putall_matches.value_of("comment").map(|e| e.to_string());
+                let key_id = putall_matches.get_one("key").map(|e: &String| e.to_string());
+                let comment = putall_matches.get_one("comment").map(|e: &String| e.to_string());
                 let version: Either<u64, AutoIncrement> = {
-                    let version_option = putall_matches.value_of("version").map_or(1, |e| {
+                    let version_option = putall_matches.get_one("version").map_or(1, |e: &String| {
                         e.to_string()
                             .parse::<u64>()
                             .expect("Version should be positive integer")
                     });
-                    let autoversion = putall_matches.is_present("autoversion");
+                    let autoversion = putall_matches.contains_id("autoversion");
                     if autoversion {
                         Either::Right(AutoIncrement::AutoIncrement)
                     } else {
@@ -726,11 +726,11 @@ impl CredstashApp {
                     }
                 };
                 let digest_algorithm = putall_matches
-                    .value_of("digest")
-                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e| to_algorithm(e.to_string()))?;
+                    .get_one("digest")
+                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e: &String| to_algorithm(e.to_string()))?;
 
-                let context: Option<Vec<_>> = putall_matches.values_of("context").and_then(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
+                let context: Option<Vec<_>> = putall_matches.get_many("context").and_then(|e| {
+                    e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
                 let encryption_context: Vec<_> = match context {
@@ -750,14 +750,14 @@ impl CredstashApp {
             Some(("put", put_matches)) => {
                 log::debug!("Put Action");
                 let credential_name: String = put_matches
-                    .value_of("credential")
-                    .map_or(Err(CredStashAppError::MissingCredential), |val| {
+                    .get_one("credential")
+                    .map_or(Err(CredStashAppError::MissingCredential), |val: &String| {
                         Ok(val.to_string())
                     })?;
                 log::debug!("Credential name: {}", credential_name);
                 let credential_value: String = {
                     let mut value = String::new();
-                    let get_input = put_matches.is_present("prompt");
+                    let get_input = put_matches.get_flag("prompt");
                     if get_input {
                         print!("{}: ", credential_name);
                         let stdout = io::stdout();
@@ -768,25 +768,25 @@ impl CredstashApp {
                             .expect("Failed to read from stdin");
                     } else {
                         value = put_matches
-                            .value_of("value")
-                            .map_or(Err(CredStashAppError::MissingCredentialValue), |val| {
+                            .get_one("value")
+                            .map_or(Err(CredStashAppError::MissingCredentialValue), |val: &String| {
                                 Ok(val.to_string())
                             })?;
                     }
                     value.trim().to_string()
                 };
                 log::debug!("Credential value: {}", credential_value);
-                let key_id = put_matches.value_of("key").map(|e| e.to_string());
+                let key_id = put_matches.get_one("key").map(|e: &String| e.to_string());
                 log::debug!("Key ID: {:?}", key_id);
-                let comment = put_matches.value_of("comment").map(|e| e.to_string());
+                let comment = put_matches.get_one("comment").map(|e: &String| e.to_string());
                 log::debug!("Comment: {:?}", comment);
                 let version: Either<u64, AutoIncrement> = {
-                    let version_option = put_matches.value_of("version").map_or(1, |e| {
+                    let version_option = put_matches.get_one("version").map_or(1, |e: &String| {
                         e.to_string()
                             .parse::<u64>()
                             .expect("Version should be positive integer")
                     });
-                    let autoversion = put_matches.is_present("autoversion");
+                    let autoversion = put_matches.get_flag("autoversion");
                     if autoversion {
                         Either::Right(AutoIncrement::AutoIncrement)
                     } else {
@@ -795,8 +795,8 @@ impl CredstashApp {
                 };
                 log::debug!("Version: {:?}", version);
                 let digest_algorithm = put_matches
-                    .value_of("digest")
-                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e| to_algorithm(e.to_string()))?;
+                    .get_one("digest")
+                    .map_or(Ok(ring::hmac::HMAC_SHA256), |e: &String| to_algorithm(e.to_string()))?;
 
                 let put_opts = PutOpts {
                     key_id,
@@ -804,8 +804,8 @@ impl CredstashApp {
                     version,
                     digest_algorithm,
                 };
-                let context: Option<Vec<_>> = put_matches.values_of("context").and_then(|e| {
-                    e.map(|item| split_context_to_tuple(item.to_string()).ok())
+                let context: Option<Vec<_>> = put_matches.get_many("context").and_then(|e| {
+                    e.map(|item: &String| split_context_to_tuple(item.to_string()).ok())
                         .collect()
                 });
                 log::debug!("Context: {:?}", context);
@@ -822,8 +822,8 @@ impl CredstashApp {
             }
             Some(("delete", del_matches)) => {
                 let credential: String = del_matches
-                    .value_of("credential")
-                    .map_or(Err(CredStashAppError::MissingCredential), |val| {
+                    .get_one("credential")
+                    .map_or(Err(CredStashAppError::MissingCredential), |val: &String| {
                         Ok(val.to_string())
                     })?;
                 Action::Delete(credential)
@@ -844,10 +844,10 @@ impl CredstashApp {
         let table_name = {
             match env::var("CREDSTASH_DEFAULT_TABLE ") {
                 Ok(val) => Some(val),
-                Err(_) => matches.value_of("table").map(|r| r.to_string()),
+                Err(_) => matches.get_one("table").map(|r: &String| r.to_string()),
             }
         };
-        let mfa = matches.value_of("mfa").map(|r| {
+        let mfa = matches.get_one("mfa").map(|r: &String| {
             print!("Enter MFA Code: ");
             let mut value = String::new();
             let stdout = io::stdout();
@@ -860,11 +860,11 @@ impl CredstashApp {
         });
         let credential_type = {
             let assume_role = matches
-                .value_of("arn")
-                .map(|r| CredStashCredential::DefaultAssumeRole((r.to_string(), mfa)));
+                .get_one("arn")
+                .map(|r: &String| CredStashCredential::DefaultAssumeRole((r.to_string(), mfa)));
             let profile_cred = matches
-                .value_of("profile")
-                .map(|r| CredStashCredential::DefaultProfile(Some(r.to_string())));
+                .get_one("profile")
+                .map(|r: &String| CredStashCredential::DefaultProfile(Some(r.to_string())));
             match (assume_role, profile_cred) {
                 (Some(cred), _) => cred,
                 (_, Some(cred)) => cred,
@@ -945,7 +945,7 @@ fn handle_error(error: CredStashAppError) {
     match error {
         CredStashAppError::VersionError(error_message) => program_exit(&error_message),
         CredStashAppError::ClapError(clap_error) => {
-            if clap_error.kind == DisplayHelp || clap_error.kind == DisplayVersion {
+            if clap_error.kind() == DisplayHelp || clap_error.kind() == DisplayVersion {
                 eprintln!("{}", &clap_error.to_string())
             } else {
                 program_exit(&clap_error.to_string())
