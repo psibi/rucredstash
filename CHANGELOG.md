@@ -1,11 +1,9 @@
-# v0.9.2
-
-- Default to SHA256 when digest column is not present
-
 # v0.9.1
 
 - Minor fixes based on clippy suggestions
 - Upgrade crates to latest version and make relevant changes for ctr.
+- Default to SHA256 when digest column is not present
+- Bump dependencies and rust-toolchain.
 
 # v0.9.0
 
