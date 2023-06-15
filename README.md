@@ -2,7 +2,7 @@
 
 [![Crates.io][crates-badge]][crates-url]
 [![MIT licensed][mit-badge]][mit-url]
-[![Build Status](https://dev.azure.com/psibi2000/rucredstash/_apis/build/status/psibi.rucredstash?branchName=master)](https://dev.azure.com/psibi2000/rucredstash/_build/latest?definitionId=14&branchName=master)
+[![Rust](https://github.com/psibi/rucredstash/actions/workflows/rust.yml/badge.svg)](https://github.com/psibi/rucredstash/actions/workflows/rust.yml)
 
 [crates-badge]: https://img.shields.io/crates/v/credstash.svg
 [crates-url]: https://crates.io/crates/credstash
