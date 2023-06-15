@@ -1,3 +1,8 @@
+# v0.9.2
+
+- Use rustls feature of rusoto crates to make musl builds easier.
+- Some rust code changes to conform rustfmt and clippy
+
 # v0.9.1
 
 - Minor fixes based on clippy suggestions
